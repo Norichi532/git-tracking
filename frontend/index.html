@@ -29,10 +29,13 @@
       <div class="card">
         <h2>1. Dự án</h2>
         <form id="project-form" class="stack">
-          <input name="name" placeholder="Tên dự án (VD: Project A)" required />
+          <select name="openProjectId" id="openproject-project-select" required>
+            <option value="">Đang tải dự án từ OpenProject...</option>
+          </select>
           <input name="repoUrl" placeholder="https://github.com/user/project-a" required />
           <button type="submit">Thêm dự án</button>
         </form>
+        <p id="openproject-status" class="webhook-status neutral"></p>
         <p id="project-webhook-status" class="webhook-status neutral"></p>
         <ul id="project-list" class="entity-list"></ul>
       </div>
@@ -40,10 +43,16 @@
       <div class="card">
         <h2>2. Người dùng</h2>
         <form id="user-form" class="stack">
-          <input name="name" placeholder="Tên người dùng (VD: An Nguyễn)" required />
+          <select name="memberProjectId" id="member-project-select" required>
+            <option value="">Chọn dự án để tải nhân viên</option>
+          </select>
+          <select name="openProjectUserId" id="openproject-member-select" required disabled>
+            <option value="">Chọn nhân viên từ OpenProject</option>
+          </select>
           <input name="gitEmails" placeholder="Email git, cách nhau bởi dấu phẩy" required />
           <button type="submit">Thêm người dùng</button>
         </form>
+        <p id="openproject-member-status" class="webhook-status neutral"></p>
         <ul id="user-list" class="entity-list"></ul>
       </div>
 

@@ -6,6 +6,10 @@ const express = require("express");
 const cors = require("cors");
 const { readDB, writeDB, normalizeRepoUrl } = require("./db");
 const { parseGithubRepo, createGithubWebhook, deleteGithubWebhook } = require("./github");
+const {
+  fetchOpenProjectProjects,
+  fetchOpenProjectProjectMembers,
+} = require("./openproject");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -103,20 +107,63 @@ app.post("/webhooks/git", (req, res) => {
 // ---------------------------------------------------------------------------
 // Projects CRUD (toi gian)
 // ---------------------------------------------------------------------------
+app.get("/api/openproject/projects", async (req, res) => {
+  try {
+    const result = await fetchOpenProjectProjects();
+    if (!result.ok) {
+      return res.status(result.status || 503).json({ error: result.error });
+    }
+    res.json(result.projects);
+  } catch (err) {
+    res.status(503).json({ error: err.message || "Khong the ket noi OpenProject" });
+  }
+});
+
+app.get("/api/openproject/projects/:id/members", async (req, res) => {
+  try {
+    const result = await fetchOpenProjectProjectMembers(req.params.id);
+    if (!result.ok) {
+      return res.status(result.status || 503).json({ error: result.error });
+    }
+    res.json(result.members);
+  } catch (err) {
+    res.status(503).json({ error: err.message || "Khong the ket noi OpenProject" });
+  }
+});
+
 app.get("/api/projects", (req, res) => {
   const db = readDB();
   res.json(db.projects);
 });
 
 app.post("/api/projects", async (req, res) => {
-  const { name, repoUrl } = req.body;
-  if (!name || !repoUrl) {
-    return res.status(400).json({ error: "Thieu name hoac repoUrl" });
+  const { repoUrl, openProjectId } = req.body;
+  if (!repoUrl || !openProjectId) {
+    return res.status(400).json({ error: "Thieu openProjectId hoac repoUrl" });
   }
+
+  let openProjectResult;
+  try {
+    openProjectResult = await fetchOpenProjectProjects();
+  } catch (err) {
+    return res.status(503).json({ error: err.message || "Khong the ket noi OpenProject" });
+  }
+  if (!openProjectResult.ok) {
+    return res.status(openProjectResult.status || 503).json({ error: openProjectResult.error });
+  }
+
+  const openProject = openProjectResult.projects.find(
+    (project) => String(project.id) === String(openProjectId)
+  );
+  if (!openProject) {
+    return res.status(400).json({ error: "Du an OpenProject khong hop le" });
+  }
+
   const db = readDB();
   const project = {
     id: db.nextProjectId++,
-    name,
+    name: openProject.name,
+    openProjectId: Number(openProjectId),
     repoUrl,
     createdAt: new Date().toISOString(),
   };
@@ -195,7 +242,7 @@ app.get("/api/users", (req, res) => {
 });
 
 app.post("/api/users", (req, res) => {
-  const { name, gitEmails } = req.body;
+  const { name, gitEmails, openProjectUserId } = req.body;
   if (!name || !gitEmails) {
     return res.status(400).json({ error: "Thieu name hoac gitEmails" });
   }
@@ -210,6 +257,7 @@ app.post("/api/users", (req, res) => {
   const user = {
     id: db.nextUserId++,
     name,
+    openProjectUserId: openProjectUserId ? Number(openProjectUserId) : null,
     gitEmails: emailList,
     createdAt: new Date().toISOString(),
   };
