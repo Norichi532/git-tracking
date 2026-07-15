@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Git Commit Tracker — Demo</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark">◇</span>
+      <div>
+        <h1>Commit Tracker</h1>
+        <p class="tagline">Một nguồn, nhiều dự án, một danh tính theo dõi được.</p>
+      </div>
+    </div>
+    <div class="webhook-hint">
+      <span class="dot"></span>
+      Webhook endpoint: <code>POST /webhooks/git</code>
+    </div>
+  </header>
+
+  <main class="layout">
+
+    <section class="col setup-col">
+
+      <div class="card">
+        <h2>1. Dự án</h2>
+        <form id="project-form" class="stack">
+          <input name="name" placeholder="Tên dự án (VD: Project A)" required />
+          <input name="repoUrl" placeholder="https://github.com/user/project-a" required />
+          <button type="submit">Thêm dự án</button>
+        </form>
+        <p id="project-webhook-status" class="webhook-status neutral"></p>
+        <ul id="project-list" class="entity-list"></ul>
+      </div>
+
+      <div class="card">
+        <h2>2. Người dùng</h2>
+        <form id="user-form" class="stack">
+          <input name="name" placeholder="Tên người dùng (VD: An Nguyễn)" required />
+          <input name="gitEmails" placeholder="Email git, cách nhau bởi dấu phẩy" required />
+          <button type="submit">Thêm người dùng</button>
+        </form>
+        <ul id="user-list" class="entity-list"></ul>
+      </div>
+
+    </section>
+
+    <section class="col feed-col">
+      <div class="card feed-card">
+        <div class="feed-header">
+          <h2>Dòng commit</h2>
+          <div class="filters">
+            <select id="filter-project"><option value="">Mọi dự án</option></select>
+            <select id="filter-user"><option value="">Mọi người dùng</option></select>
+            <button id="refresh-btn">↻ Làm mới</button>
+          </div>
+        </div>
+        <div id="commit-feed" class="commit-feed">
+          <p class="empty-state">Chưa có commit nào. Thêm dự án + người dùng rồi mô phỏng một commit ở bên trái.</p>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>

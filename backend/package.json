@@ -1,0 +1,14 @@
+{
+  "name": "git-commit-tracker",
+  "version": "1.0.0",
+  "description": "Demo: thu thap commit tu nhieu du an Git qua webhook, xu ly 1 tai khoan tham gia nhieu du an",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "cors": "^2.8.5"
+  }
+}
