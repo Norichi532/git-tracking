@@ -157,4 +157,106 @@ async function fetchOpenProjectProjectMembers(projectId) {
   };
 }
 
-module.exports = { fetchOpenProjectProjects, fetchOpenProjectProjectMembers };
+async function fetchOpenProjectProjectSprints(projectId) {
+  const config = requireOpenProjectConfig();
+  if (!config.ok) return config;
+
+  const projectResult = await fetchOpenProjectJson({
+    baseUrl: config.baseUrl,
+    apiKey: config.apiKey,
+    href: `/api/v3/projects/${projectId}`,
+  });
+  if (!projectResult.ok) return projectResult;
+
+  const versionsHref = projectResult.data._links?.versions?.href;
+  if (!versionsHref) return { ok: true, sprints: [] };
+
+  const result = await fetchOpenProjectCollection({
+    baseUrl: config.baseUrl,
+    apiKey: config.apiKey,
+    href: versionsHref,
+  });
+  if (!result.ok) return result;
+
+  const sprints = result.elements
+    .map((version) => ({
+      id: version.id,
+      name: version.name,
+      startDate: version.startDate || "",
+      finishDate: version.endDate || version.effectiveDate || "",
+      status: version._links?.status?.title || version.status || "",
+      source: "version",
+    }))
+    .filter((sprint) => sprint.id && sprint.name)
+    .sort((a, b) => {
+      const left = a.startDate || "";
+      const right = b.startDate || "";
+      return right.localeCompare(left) || a.name.localeCompare(b.name);
+    });
+
+  return { ok: true, sprints };
+}
+
+function linkId(link, resourceName) {
+  const href = link?.href || "";
+  const match = href.match(new RegExp(`/api/v3/${resourceName}/(\\d+)$`));
+  return match ? Number(match[1]) : null;
+}
+
+async function fetchOpenProjectSprintTasks({ projectId, sprintId, memberId }) {
+  const config = requireOpenProjectConfig();
+  if (!config.ok) return config;
+
+  const projectResult = await fetchOpenProjectJson({
+    baseUrl: config.baseUrl,
+    apiKey: config.apiKey,
+    href: `/api/v3/projects/${projectId}`,
+  });
+  if (!projectResult.ok) return projectResult;
+
+  const workPackagesHref = projectResult.data._links?.workPackages?.href;
+  if (!workPackagesHref) return { ok: true, tasks: [] };
+
+  const workPackagesUrl = new URL(absoluteOpenProjectUrl(config.baseUrl, workPackagesHref));
+  if (!workPackagesUrl.searchParams.has("filters")) {
+    workPackagesUrl.searchParams.set("filters", "[]");
+  }
+
+  const workPackagesResult = await fetchOpenProjectCollection({
+    baseUrl: config.baseUrl,
+    apiKey: config.apiKey,
+    href: `${workPackagesUrl.pathname}${workPackagesUrl.search}`,
+  });
+  if (!workPackagesResult.ok) return workPackagesResult;
+
+  const wantedVersionId = Number(sprintId);
+  const wantedMemberId = Number(memberId);
+
+  const tasks = workPackagesResult.elements
+    .filter((wp) => linkId(wp._links?.version, "versions") === wantedVersionId)
+    .filter((wp) => linkId(wp._links?.assignee, "users") === wantedMemberId)
+    .map((wp) => ({
+      id: wp.id,
+      displayId: wp.displayId || String(wp.id),
+      subject: wp.subject,
+      type: wp._links?.type?.title || "",
+      status: wp._links?.status?.title || "",
+      priority: wp._links?.priority?.title || "",
+      assignee: wp._links?.assignee?.title || "",
+      sprint: wp._links?.version?.title || "",
+      percentageDone: wp.percentageDone ?? wp.derivedPercentageDone ?? null,
+      updatedAt: wp.updatedAt,
+      createdAt: wp.createdAt,
+      url: absoluteOpenProjectUrl(config.baseUrl, `/work_packages/${wp.id}`),
+    }))
+    .sort((a, b) => Number(a.displayId) - Number(b.displayId));
+
+  return { ok: true, tasks };
+}
+
+module.exports = {
+  fetchOpenProjectProjects,
+  fetchOpenProjectProjectMembers,
+  fetchOpenProjectProjectSprints,
+  fetchOpenProjectSprintTasks,
+};

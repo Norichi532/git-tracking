@@ -59,17 +59,29 @@
     </section>
 
     <section class="col feed-col">
-      <div class="card feed-card">
-        <div class="feed-header">
-          <h2>Dòng commit</h2>
-          <div class="filters">
-            <select id="filter-project"><option value="">Mọi dự án</option></select>
-            <select id="filter-user"><option value="">Mọi người dùng</option></select>
-            <button id="refresh-btn">↻ Làm mới</button>
-          </div>
+      <div class="card progress-card">
+        <div class="progress-header">
+          <h2>Tiến độ sprint</h2>
+          <button id="progress-refresh-btn">Làm mới</button>
         </div>
-        <div id="commit-feed" class="commit-feed">
-          <p class="empty-state">Chưa có commit nào. Thêm dự án + người dùng rồi mô phỏng một commit ở bên trái.</p>
+
+        <div class="progress-filters">
+          <select id="progress-project-select">
+            <option value="">Chọn dự án</option>
+          </select>
+          <select id="progress-member-select" disabled>
+            <option value="">Chọn thành viên</option>
+          </select>
+          <select id="progress-sprint-select" disabled>
+            <option value="">Chọn sprint</option>
+          </select>
+        </div>
+
+        <p id="progress-status" class="webhook-status neutral"></p>
+
+        <div id="progress-summary" class="progress-summary"></div>
+        <div id="task-board" class="task-board">
+          <p class="empty-state">Chọn dự án, thành viên và sprint để xem các task được giao cùng tiến độ commit.</p>
         </div>
       </div>
     </section>

@@ -9,6 +9,8 @@ const { parseGithubRepo, createGithubWebhook, deleteGithubWebhook } = require(".
 const {
   fetchOpenProjectProjects,
   fetchOpenProjectProjectMembers,
+  fetchOpenProjectProjectSprints,
+  fetchOpenProjectSprintTasks,
 } = require("./openproject");
 
 const app = express();
@@ -40,6 +42,9 @@ function handlePushEvent(payload) {
   );
 
   if (!project) {
+    console.warn(
+      `[GitHub webhook] No local project matched repoUrl="${repoUrl}". Commit payload ignored.`
+    );
     return {
       ok: false,
       status: 404,
@@ -50,6 +55,8 @@ function handlePushEvent(payload) {
   const incomingCommits = payload.commits || [];
   let inserted = 0;
   let skipped = 0;
+  const insertedCommits = [];
+  const skippedCommits = [];
 
   for (const c of incomingCommits) {
     const sha = c.id || c.sha;
@@ -60,6 +67,10 @@ function handlePushEvent(payload) {
     );
     if (alreadyExists) {
       skipped++;
+      skippedCommits.push({
+        sha,
+        message: c.message || "",
+      });
       continue;
     }
 
@@ -83,9 +94,34 @@ function handlePushEvent(payload) {
       createdAt: new Date().toISOString(),
     });
     inserted++;
+    insertedCommits.push({
+      sha,
+      authorEmail,
+      authorName,
+      message: c.message || "",
+    });
   }
 
   writeDB(db);
+
+  if (inserted > 0 || skipped > 0) {
+    console.log(
+      `[GitHub webhook] project="${project.name}" repo="${repoUrl}" received=${incomingCommits.length} inserted=${inserted} skipped=${skipped}`
+    );
+
+    insertedCommits.forEach((commit) => {
+      console.log(
+        `[GitHub webhook] + ${commit.sha.slice(0, 7)} ${commit.authorName} <${commit.authorEmail}>: ${commit.message}`
+      );
+    });
+
+    skippedCommits.forEach((commit) => {
+      console.log(
+        `[GitHub webhook] = ${commit.sha.slice(0, 7)} skipped duplicate: ${commit.message}`
+      );
+    });
+  }
+
   return { ok: true, status: 200, project: project.name, inserted, skipped };
 }
 
@@ -129,6 +165,131 @@ app.get("/api/openproject/projects/:id/members", async (req, res) => {
   } catch (err) {
     res.status(503).json({ error: err.message || "Khong the ket noi OpenProject" });
   }
+});
+
+app.get("/api/openproject/projects/:id/sprints", async (req, res) => {
+  try {
+    const result = await fetchOpenProjectProjectSprints(req.params.id);
+    if (!result.ok) {
+      return res.status(result.status || 503).json({ error: result.error });
+    }
+    res.json(result.sprints);
+  } catch (err) {
+    res.status(503).json({ error: err.message || "Khong the ket noi OpenProject" });
+  }
+});
+
+function commitWorkPackageIds(message) {
+  const ids = new Set();
+  const text = String(message || "");
+  for (const match of text.matchAll(/\b(?:OP|WP)#(\d+)\b/gi)) {
+    ids.add(Number(match[1]));
+  }
+  return ids;
+}
+
+function commitProgressState(message) {
+  const text = String(message || "").toLowerCase();
+  const match = text.match(/\b(start|progress|review|done|block|blocked|fix)\b/);
+  if (!match) return null;
+  if (match[1] === "blocked") return "block";
+  return match[1];
+}
+
+function progressFromTaskAndCommits(task, commits) {
+  const latestState = commits.map((c) => c.progressState).filter(Boolean).at(-1);
+  const status = String(task.status || "").toLowerCase();
+
+  if (task.percentageDone !== null && task.percentageDone !== undefined) {
+    return Number(task.percentageDone);
+  }
+  if (latestState === "done" || status.includes("done") || status.includes("closed") || status.includes("đóng")) {
+    return 100;
+  }
+  if (latestState === "review") return 80;
+  if (latestState === "progress" || latestState === "fix") return 50;
+  if (latestState === "start") return 20;
+  if (latestState === "block") return 35;
+  return 0;
+}
+
+app.get("/api/progress", async (req, res) => {
+  const { openProjectId, openProjectUserId, sprintId } = req.query;
+  if (!openProjectId || !openProjectUserId || !sprintId) {
+    return res.status(400).json({
+      error: "Thieu openProjectId, openProjectUserId hoac sprintId",
+    });
+  }
+
+  let tasksResult;
+  try {
+    tasksResult = await fetchOpenProjectSprintTasks({
+      projectId: openProjectId,
+      memberId: openProjectUserId,
+      sprintId,
+    });
+  } catch (err) {
+    return res.status(503).json({ error: err.message || "Khong the ket noi OpenProject" });
+  }
+  if (!tasksResult.ok) {
+    return res.status(tasksResult.status || 503).json({ error: tasksResult.error });
+  }
+
+  const db = readDB();
+  const localProject = db.projects.find(
+    (project) => String(project.openProjectId) === String(openProjectId)
+  );
+  const localUser = db.users.find(
+    (user) => String(user.openProjectUserId) === String(openProjectUserId)
+  );
+
+  const relatedCommits = db.commits
+    .filter((commit) => !localProject || commit.projectId === localProject.id)
+    .filter((commit) => !localUser || commit.authorId === localUser.id)
+    .map((commit) => ({
+      ...commit,
+      workPackageIds: commitWorkPackageIds(commit.message),
+      progressState: commitProgressState(commit.message),
+    }))
+    .filter((commit) => commit.workPackageIds.size > 0)
+    .sort((a, b) => new Date(a.commitDate) - new Date(b.commitDate));
+
+  const tasks = tasksResult.tasks.map((task) => {
+    const taskCommits = relatedCommits
+      .filter((commit) => commit.workPackageIds.has(task.id))
+      .map((commit) => ({
+        id: commit.id,
+        message: commit.message,
+        url: commit.url,
+        commitDate: commit.commitDate,
+        progressState: commit.progressState,
+      }));
+
+    return {
+      ...task,
+      progress: progressFromTaskAndCommits(task, taskCommits),
+      commitCount: taskCommits.length,
+      latestCommit: taskCommits.at(-1) || null,
+      commits: taskCommits.slice(-5).reverse(),
+    };
+  });
+
+  const doneCount = tasks.filter((task) => task.progress >= 100).length;
+  const averageProgress =
+    tasks.length === 0
+      ? 0
+      : Math.round(tasks.reduce((sum, task) => sum + task.progress, 0) / tasks.length);
+
+  res.json({
+    summary: {
+      totalTasks: tasks.length,
+      doneTasks: doneCount,
+      inProgressTasks: tasks.filter((task) => task.progress > 0 && task.progress < 100).length,
+      notStartedTasks: tasks.filter((task) => task.progress === 0).length,
+      averageProgress,
+    },
+    tasks,
+  });
 });
 
 app.get("/api/projects", (req, res) => {

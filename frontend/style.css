@@ -246,3 +246,114 @@ button.primary { background: var(--green); border-color: var(--green); }
   align-self: start;
   padding-top: 2px;
 }
+
+/* ---------- Progress board ---------- */
+.progress-card { min-height: 520px; }
+.progress-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.progress-header h2 { margin: 0; }
+.progress-header button {
+  background: var(--panel);
+  color: var(--ink);
+  font-size: 13px;
+  padding: 8px 12px;
+}
+.progress-filters {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+@media (max-width: 700px) {
+  .progress-filters { grid-template-columns: 1fr; }
+}
+.progress-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin: 14px 0;
+}
+.progress-summary div {
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 10px;
+  background: var(--paper);
+}
+.progress-summary strong {
+  display: block;
+  font-family: var(--mono);
+  font-size: 20px;
+}
+.progress-summary span {
+  color: var(--muted);
+  font-size: 12px;
+}
+.task-board {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.task-card {
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 14px;
+  background: var(--panel);
+}
+.task-topline {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+.task-topline a {
+  color: var(--ink);
+  text-decoration: none;
+  font-weight: 700;
+  line-height: 1.35;
+}
+.task-topline a:hover { text-decoration: underline; }
+.progress-track {
+  height: 8px;
+  background: var(--line);
+  border-radius: 999px;
+  overflow: hidden;
+  margin: 10px 0;
+}
+.progress-bar {
+  height: 100%;
+  min-width: 2px;
+}
+.task-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.task-meta span {
+  background: var(--paper);
+  border-radius: 4px;
+  padding: 2px 6px;
+}
+.task-commits {
+  list-style: none;
+  padding: 0;
+  margin: 10px 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.task-commits li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.task-commits code {
+  flex: 0 0 auto;
+}

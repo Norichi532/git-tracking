@@ -8,6 +8,8 @@ let projects = [];
 let users = [];
 let openProjectProjects = [];
 let openProjectMembers = [];
+let progressMembers = [];
+let progressSprints = [];
 
 // Mau cho tung du an, gan on dinh theo ten (de "graph line" nhat quan)
 const PALETTE = ["#1F8B4C", "#2563EB", "#C2410C", "#7C3AED", "#0891B2", "#B45309"];
@@ -45,16 +47,11 @@ async function loadProjects() {
     )
     .join("") || "";
 
-  const options = projects
-    .map((p) => `<option value="${p.id}">${p.name}</option>`)
-    .join("");
-  $("#filter-project").innerHTML = `<option value="">Mọi dự án</option>` + options;
-
   document.querySelectorAll(".del-project").forEach((btn) => {
     btn.onclick = async () => {
       await api(`/api/projects/${btn.dataset.id}`, { method: "DELETE" });
       await loadProjects();
-      await loadCommits();
+      await loadProgressBoard();
     };
   });
 }
@@ -96,9 +93,13 @@ async function loadOpenProjectProjects() {
     select.disabled = false;
     $("#member-project-select").innerHTML =
       openProjectProjectOptions("Chọn dự án để tải nhân viên");
+    $("#progress-project-select").innerHTML =
+      openProjectProjectOptions("Chọn dự án");
   } catch (err) {
     select.innerHTML = `<option value="">Không tải được dự án OpenProject</option>`;
     $("#member-project-select").innerHTML =
+      `<option value="">Không tải được dự án OpenProject</option>`;
+    $("#progress-project-select").innerHTML =
       `<option value="">Không tải được dự án OpenProject</option>`;
     statusEl.textContent = err.message;
     statusEl.className = "webhook-status error";
@@ -204,15 +205,11 @@ async function loadUsers() {
     )
     .join("") || "";
 
-  $("#filter-user").innerHTML =
-    `<option value="">Mọi người dùng</option>` +
-    users.map((u) => `<option value="${u.id}">${u.name}</option>`).join("");
-
   document.querySelectorAll(".del-user").forEach((btn) => {
     btn.onclick = async () => {
       await api(`/api/users/${btn.dataset.id}`, { method: "DELETE" });
       await loadUsers();
-      await loadCommits();
+      await loadProgressBoard();
     };
   });
 }
@@ -258,14 +255,14 @@ $("#user-form").addEventListener("submit", async (e) => {
   $("#openproject-member-status").textContent = "";
   $("#openproject-member-status").className = "webhook-status neutral";
   await loadUsers();
-  await loadCommits();
+  await loadProgressBoard();
 });
 
 // ---------------------------------------------------------------------------
 // Simulate push
 
 // ---------------------------------------------------------------------------
-// Commit feed
+// Progress board
 // ---------------------------------------------------------------------------
 function timeAgo(iso) {
   const diffMs = Date.now() - new Date(iso).getTime();
@@ -277,49 +274,156 @@ function timeAgo(iso) {
   return `${Math.floor(hours / 24)} ngày trước`;
 }
 
-async function loadCommits() {
-  const projectId = $("#filter-project").value;
-  const userId = $("#filter-user").value;
-  const params = new URLSearchParams();
-  if (projectId) params.set("projectId", projectId);
-  if (userId) params.set("userId", userId);
+function progressColor(progress) {
+  if (progress >= 100) return "var(--green)";
+  if (progress >= 70) return "#2563EB";
+  if (progress >= 30) return "#B45309";
+  return "var(--rust)";
+}
 
-  const commits = await api(`/api/commits?${params.toString()}`);
+function renderProgressEmpty(message) {
+  $("#progress-summary").innerHTML = "";
+  $("#task-board").innerHTML = `<p class="empty-state">${message}</p>`;
+}
 
-  if (commits.length === 0) {
-    $("#commit-feed").innerHTML =
-      '<p class="empty-state">Chưa có commit nào khớp bộ lọc hiện tại.</p>';
+async function loadProgressMembers(projectId) {
+  const select = $("#progress-member-select");
+  progressMembers = [];
+  select.disabled = true;
+  select.innerHTML = `<option value="">Đang tải thành viên...</option>`;
+
+  if (!projectId) {
+    select.innerHTML = `<option value="">Chọn thành viên</option>`;
     return;
   }
 
-  $("#commit-feed").innerHTML = commits
-    .map((c) => {
-      const color = colorForProject(c.projectName);
-      const authorTag = c.authorId
-        ? `<span>${c.displayName}</span>`
-        : `<span class="author-unmapped">${c.displayName}</span>`;
-      return `
-        <div class="commit-row">
-          <div class="graph-cell">
-            <div class="graph-dot" style="background:${color}"></div>
-          </div>
-          <div class="commit-main">
-            <p class="message">${c.message}</p>
-            <div class="subline">
-              <span class="project-chip" style="background:${color}22;color:${color}">${c.projectName}</span>
-              ${authorTag}
-              <span>· ${timeAgo(c.commitDate)}</span>
-            </div>
-          </div>
-          <div class="commit-sha">${c.id.slice(0, 7)}</div>
-        </div>`;
-    })
-    .join("");
+  progressMembers = await api(`/api/openproject/projects/${projectId}/members`);
+  select.innerHTML =
+    `<option value="">Chọn thành viên</option>` +
+    progressMembers.map((member) => `<option value="${member.id}">${member.name}</option>`).join("");
+  select.disabled = progressMembers.length === 0;
 }
 
-$("#filter-project").addEventListener("change", loadCommits);
-$("#filter-user").addEventListener("change", loadCommits);
-$("#refresh-btn").addEventListener("click", loadCommits);
+async function loadProgressSprints(projectId) {
+  const select = $("#progress-sprint-select");
+  progressSprints = [];
+  select.disabled = true;
+  select.innerHTML = `<option value="">Đang tải sprint...</option>`;
+
+  if (!projectId) {
+    select.innerHTML = `<option value="">Chọn sprint</option>`;
+    return;
+  }
+
+  progressSprints = await api(`/api/openproject/projects/${projectId}/sprints`);
+  select.innerHTML =
+    `<option value="">Chọn sprint</option>` +
+    progressSprints
+      .map((sprint) => {
+        const dates =
+          sprint.startDate || sprint.finishDate
+            ? ` (${sprint.startDate || "?"} - ${sprint.finishDate || "?"})`
+            : "";
+        return `<option value="${sprint.id}">${sprint.name}${dates}</option>`;
+      })
+      .join("");
+  select.disabled = progressSprints.length === 0;
+}
+
+async function loadProgressBoard() {
+  const projectId = $("#progress-project-select").value;
+  const memberId = $("#progress-member-select").value;
+  const sprintId = $("#progress-sprint-select").value;
+  const statusEl = $("#progress-status");
+
+  if (!projectId || !memberId || !sprintId) {
+    renderProgressEmpty("Chọn dự án, thành viên và sprint để xem các task được giao cùng tiến độ commit.");
+    return;
+  }
+
+  statusEl.textContent = "Đang tải tiến độ...";
+  statusEl.className = "webhook-status neutral";
+
+  try {
+    const params = new URLSearchParams({
+      openProjectId: projectId,
+      openProjectUserId: memberId,
+      sprintId,
+    });
+    const result = await api(`/api/progress?${params.toString()}`);
+    statusEl.textContent = "";
+
+    $("#progress-summary").innerHTML = `
+      <div><strong>${result.summary.totalTasks}</strong><span>Task</span></div>
+      <div><strong>${result.summary.averageProgress}%</strong><span>Trung bình</span></div>
+      <div><strong>${result.summary.doneTasks}</strong><span>Hoàn thành</span></div>
+      <div><strong>${result.summary.inProgressTasks}</strong><span>Đang làm</span></div>
+    `;
+
+    if (result.tasks.length === 0) {
+      $("#task-board").innerHTML =
+        `<p class="empty-state">Không có task nào được giao cho thành viên này trong sprint đã chọn.</p>`;
+      return;
+    }
+
+    $("#task-board").innerHTML = result.tasks
+      .map((task) => {
+        const color = progressColor(task.progress);
+        const latestCommit = task.latestCommit
+          ? `<span>Commit mới nhất: ${timeAgo(task.latestCommit.commitDate)}</span>`
+          : `<span>Chưa có commit theo quy tắc</span>`;
+        const commits = task.commits.length
+          ? task.commits
+              .map(
+                (commit) => `
+                <li>
+                  <span>${commit.message}</span>
+                  <code>${commit.id.slice(0, 7)}</code>
+                </li>`
+              )
+              .join("")
+          : `<li><span>Không có commit liên kết task này</span></li>`;
+
+        return `
+          <article class="task-card">
+            <div class="task-topline">
+              <a href="${task.url}" target="_blank" rel="noreferrer">#${task.displayId} ${task.subject}</a>
+              <strong style="color:${color}">${task.progress}%</strong>
+            </div>
+            <div class="progress-track">
+              <div class="progress-bar" style="width:${task.progress}%;background:${color}"></div>
+            </div>
+            <div class="task-meta">
+              <span>${task.type || "Task"}</span>
+              <span>${task.status || "Chưa có trạng thái"}</span>
+              <span>${task.commitCount} commit</span>
+              ${latestCommit}
+            </div>
+            <ul class="task-commits">${commits}</ul>
+          </article>`;
+      })
+      .join("");
+  } catch (err) {
+    statusEl.textContent = err.message;
+    statusEl.className = "webhook-status error";
+  }
+}
+
+$("#progress-project-select").addEventListener("change", async (e) => {
+  $("#progress-status").textContent = "";
+  $("#progress-member-select").innerHTML = `<option value="">Chọn thành viên</option>`;
+  $("#progress-sprint-select").innerHTML = `<option value="">Chọn sprint</option>`;
+  renderProgressEmpty("Chọn thành viên và sprint để xem tiến độ.");
+
+  await Promise.all([
+    loadProgressMembers(e.target.value),
+    loadProgressSprints(e.target.value),
+  ]);
+});
+
+$("#progress-member-select").addEventListener("change", loadProgressBoard);
+$("#progress-sprint-select").addEventListener("change", loadProgressBoard);
+$("#progress-refresh-btn").addEventListener("click", loadProgressBoard);
 
 // ---------------------------------------------------------------------------
 // Init
@@ -328,5 +432,5 @@ $("#refresh-btn").addEventListener("click", loadCommits);
   await loadOpenProjectProjects();
   await loadProjects();
   await loadUsers();
-  await loadCommits();
+  await loadProgressBoard();
 })();
