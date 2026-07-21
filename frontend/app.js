@@ -113,6 +113,17 @@ function formatDate(iso) {
   }).format(new Date(iso));
 }
 
+function formatRelativeTime(iso) {
+  if (!iso) return "chưa rõ thời gian";
+  const diffMs = Date.now() - new Date(iso).getTime();
+  const mins = Math.max(0, Math.floor(diffMs / 60000));
+  if (mins < 1) return "vừa xong";
+  if (mins < 60) return `${mins} phút trước`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours} giờ trước`;
+  return `${Math.floor(hours / 24)} ngày trước`;
+}
+
 function formatDuration(ms) {
   if (!ms || ms <= 0) return "0h";
 
@@ -127,6 +138,10 @@ function formatDuration(ms) {
   if (!days && minutes) parts.push(`${minutes}m`);
 
   return parts.join(" ") || "0h";
+}
+
+function warningClass(level) {
+  return level === "warning" ? "is-warning" : "is-info";
 }
 
 function renderEmpty(message) {
@@ -227,8 +242,11 @@ async function loadProgressBoard() {
       <div><strong>${result.summary.averageProgress}%</strong><span>Trung bình</span></div>
       <div><strong>${result.summary.doneTasks}</strong><span>Hoàn thành</span></div>
       <div><strong>${result.summary.inProgressTasks}</strong><span>Đang làm</span></div>
-      <div><strong>${formatDuration(result.summary.averageActiveMs)}</strong><span>Active TB</span></div>
+      <div><strong>${formatDuration(result.summary.averageDevelopMs)}</strong><span>Dev TB (${result.summary.developedTasks})</span></div>
+      <div><strong>${formatDuration(result.summary.totalLoggedMs)}</strong><span>Logged work</span></div>
+      <div><strong>${formatDuration(result.summary.totalUnaccountedMs)}</strong><span>Chưa phân bổ</span></div>
       <div><strong>${formatDuration(result.summary.totalBlockedMs)}</strong><span>Blocked</span></div>
+      <div><strong>${result.summary.warningCount}</strong><span>Cảnh báo</span></div>
     `;
 
     if (result.tasks.length === 0) {
@@ -249,6 +267,34 @@ async function loadProgressBoard() {
               metrics.cycleEndedAt ? formatDate(metrics.cycleEndedAt) : "đang chạy"
             }`
           : "Chưa bắt đầu";
+        const latestGithub = task.githubActivity?.latest;
+        const lastGithubActivity = latestGithub
+          ? `
+            <div class="github-activity">
+              <span class="github-label">Last GitHub</span>
+              <a href="${latestGithub.url || task.githubUrl}" target="_blank" rel="noreferrer">
+                ${latestGithub.number ? `PR #${latestGithub.number}` : "Pull request"}: ${latestGithub.title}
+              </a>
+              <span class="meta-chip is-github">${latestGithub.state || "updated"} · ${formatRelativeTime(latestGithub.updatedAt)}</span>
+            </div>`
+          : `
+            <div class="github-activity is-empty">
+              <span class="github-label">Last GitHub</span>
+              <span>Chưa có pull request liên kết trong OpenProject</span>
+            </div>`;
+        const warnings = task.warnings || [];
+        const warningList = warnings.length
+          ? `
+            <div class="task-warnings">
+              ${warnings
+                .map(
+                  (warning) =>
+                    `<span class="warning-chip ${warningClass(warning.level)}">${warning.message}</span>`
+                )
+                .join("")}
+            </div>`
+          : "";
+        const loggedMs = task.loggedWork?.totalMs || 0;
 
         return `
           <article class="task-card">
@@ -266,9 +312,12 @@ async function loadProgressBoard() {
               <span class="meta-chip is-date">Cập nhật: ${formatDate(task.updatedAt)}</span>
               ${githubLink}
             </div>
+            ${lastGithubActivity}
+            ${warningList}
             <div class="task-time">
-              <span class="time-chip is-cycle"><strong>${formatDuration(metrics.cycleMs)}</strong> cycle time</span>
-              <span class="time-chip is-active"><strong>${formatDuration(metrics.activeMs)}</strong> active time</span>
+              <span class="time-chip is-develop"><strong>${formatDuration(metrics.developMs)}</strong> dev time</span>
+              <span class="time-chip is-logged"><strong>${formatDuration(loggedMs)}</strong> logged work</span>
+              <span class="time-chip is-unaccounted"><strong>${formatDuration(metrics.unaccountedMs)}</strong> chưa phân bổ</span>
               <span class="time-chip is-blocked"><strong>${formatDuration(metrics.blockedMs)}</strong> blocked time</span>
               <span class="time-chip is-range">${cycleRange}</span>
             </div>

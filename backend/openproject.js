@@ -242,6 +242,20 @@ function statusCategory(status) {
   return "idle";
 }
 
+function isInProgressStatus(status) {
+  return String(status || "").toLowerCase().trim() === "in progress";
+}
+
+function isDevelopedStatus(status) {
+  const normalized = String(status || "").toLowerCase().trim();
+  return (
+    normalized === "developed" ||
+    normalized === "dev done" ||
+    normalized === "development done" ||
+    normalized === "đã phát triển"
+  );
+}
+
 function parseStatusChange(raw) {
   const text = String(raw || "").trim();
   const setMatch = text.match(/^(?:Status|Trạng thái) set to (.+)$/i);
@@ -284,6 +298,113 @@ async function fetchWorkPackageStatusChanges({ baseUrl, apiKey, workPackageId })
     .sort((a, b) => new Date(a.at) - new Date(b.at));
 
   return { ok: true, changes };
+}
+
+function normalizeGithubPullRequest(item) {
+  const updatedAt =
+    item.updatedAt ||
+    item.lastEditedAt ||
+    item.mergedAt ||
+    item.closedAt ||
+    item.createdAt ||
+    "";
+  const url =
+    item.htmlUrl ||
+    item.githubHtmlUrl ||
+    item.url ||
+    item._links?.html?.href ||
+    item._links?.self?.href ||
+    "";
+
+  return {
+    id: item.id || item.githubId || item.number || null,
+    number: item.number || item.githubNumber || null,
+    title: item.title || item.subject || item._links?.self?.title || "GitHub pull request",
+    state: item.state || item.status || item.githubState || "",
+    updatedAt,
+    createdAt: item.createdAt || "",
+    mergedAt: item.mergedAt || "",
+    url,
+  };
+}
+
+async function fetchWorkPackageGithubActivity({ baseUrl, apiKey, workPackageId, href }) {
+  const result = await fetchOpenProjectCollection({
+    baseUrl,
+    apiKey,
+    href: href || `/api/v3/work_packages/${workPackageId}/github_pull_requests`,
+  });
+  if (!result.ok) return result;
+
+  const pullRequests = result.elements
+    .map(normalizeGithubPullRequest)
+    .sort((a, b) => new Date(b.updatedAt || b.createdAt) - new Date(a.updatedAt || a.createdAt));
+  const latest = pullRequests[0] || null;
+
+  return {
+    ok: true,
+    activity: {
+      pullRequestCount: pullRequests.length,
+      latest: latest
+        ? {
+            type: "pull_request",
+            title: latest.title,
+            state: latest.state,
+            number: latest.number,
+            updatedAt: latest.updatedAt || latest.createdAt,
+            url: latest.url,
+          }
+        : null,
+    },
+  };
+}
+
+function parseIsoDurationToMs(value) {
+  const match = String(value || "").match(
+    /^P(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+(?:\.\d+)?)S)?)?$/i
+  );
+  if (!match) return 0;
+  const days = Number(match[1] || 0);
+  const hours = Number(match[2] || 0);
+  const minutes = Number(match[3] || 0);
+  const seconds = Number(match[4] || 0);
+  return (((days * 24 + hours) * 60 + minutes) * 60 + seconds) * 1000;
+}
+
+function normalizeTimeEntry(item) {
+  const spentMs =
+    parseIsoDurationToMs(item.hours) ||
+    parseIsoDurationToMs(item.spentTime) ||
+    parseIsoDurationToMs(item.time) ||
+    0;
+
+  return {
+    id: item.id || null,
+    spentMs,
+    spentOn: item.spentOn || item.date || "",
+    comment: item.comment?.raw || item.comment || "",
+    user: item._links?.user?.title || "",
+    activity: item._links?.activity?.title || "",
+  };
+}
+
+async function fetchWorkPackageLoggedWork({ baseUrl, apiKey, href }) {
+  if (!href) {
+    return { ok: true, loggedWork: { totalMs: 0, entryCount: 0, entries: [] } };
+  }
+
+  const result = await fetchOpenProjectCollection({ baseUrl, apiKey, href });
+  if (!result.ok) return result;
+
+  const entries = result.elements.map(normalizeTimeEntry);
+  return {
+    ok: true,
+    loggedWork: {
+      totalMs: entries.reduce((sum, entry) => sum + entry.spentMs, 0),
+      entryCount: entries.length,
+      entries,
+    },
+  };
 }
 
 function overlapMs(start, end, windowStart, windowEnd) {
@@ -453,6 +574,20 @@ function calculateTimeMetrics({
   const cycleEnd = doneSegment?.start || (cycleStart ? now : null);
 
   const durationBetween = (start, end) => businessMsBetween(start, end, businessHoursRule);
+  let developmentStartedAt = null;
+  let developedAt = null;
+
+  for (const change of changes) {
+    const changeTime = new Date(change.at).getTime();
+    if (!developmentStartedAt && isInProgressStatus(change.to)) {
+      developmentStartedAt = changeTime;
+      continue;
+    }
+    if (developmentStartedAt && isDevelopedStatus(change.to)) {
+      developedAt = changeTime;
+      break;
+    }
+  }
 
   const activeMs =
     cycleStart && cycleEnd
@@ -490,9 +625,88 @@ function calculateTimeMetrics({
     cycleMs: cycleStart && cycleEnd ? durationBetween(cycleStart, cycleEnd) : 0,
     activeMs,
     blockedMs,
+    developmentStartedAt: developmentStartedAt
+      ? new Date(developmentStartedAt).toISOString()
+      : null,
+    developedAt: developedAt ? new Date(developedAt).toISOString() : null,
+    developMs:
+      developmentStartedAt && developedAt
+        ? durationBetween(developmentStartedAt, developedAt)
+        : 0,
     timeMode: normalizeBusinessHoursRule(businessHoursRule).enabled ? "business" : "calendar",
     currentStatusCategory: statusCategory(currentStatus),
     statusChanges: changes,
+  };
+}
+
+function taskWarnings({ task, timeMetrics, loggedWork, githubActivity }) {
+  const warnings = [];
+  const devMs = timeMetrics.developMs || 0;
+  const loggedMs = loggedWork.totalMs || 0;
+  const blockedMs = timeMetrics.blockedMs || 0;
+  const unaccountedMs = Math.max(0, devMs - loggedMs - blockedMs);
+  const fourBusinessHours = 4 * 60 * 60 * 1000;
+  const twoBusinessHours = 2 * 60 * 60 * 1000;
+
+  if (timeMetrics.developmentStartedAt && !timeMetrics.developedAt) {
+    warnings.push({
+      code: "PIPELINE_NOT_FINISHED",
+      level: "info",
+      message: "Task đã bắt đầu dev nhưng chưa tới Developed.",
+    });
+  }
+
+  if (timeMetrics.developmentStartedAt && loggedMs === 0) {
+    warnings.push({
+      code: "NO_LOGGED_WORK",
+      level: "warning",
+      message: "Chưa có logged work cho task đã bắt đầu dev.",
+    });
+  }
+
+  if (devMs > 0 && loggedMs > 0 && loggedMs / devMs < 0.25) {
+    warnings.push({
+      code: "LOW_LOGGED_RATIO",
+      level: "warning",
+      message: "Logged work thấp so với thời gian đi qua pipeline.",
+    });
+  }
+
+  if (unaccountedMs >= fourBusinessHours) {
+    warnings.push({
+      code: "HIGH_UNACCOUNTED_TIME",
+      level: "warning",
+      message: "Khoảng chưa phân bổ cao, nên kiểm tra họp/chờ/context switch.",
+    });
+  }
+
+  if (blockedMs >= twoBusinessHours) {
+    warnings.push({
+      code: "BLOCKED_TIME",
+      level: "warning",
+      message: "Task có blocked time đáng chú ý.",
+    });
+  }
+
+  if (!githubActivity.latest && !["idle", "done"].includes(timeMetrics.currentStatusCategory)) {
+    warnings.push({
+      code: "NO_GITHUB_ACTIVITY",
+      level: "info",
+      message: "Chưa thấy pull request liên kết qua OpenProject GitHub integration.",
+    });
+  }
+
+  if (!task.assignee) {
+    warnings.push({
+      code: "NO_ASSIGNEE",
+      level: "warning",
+      message: "Task chưa có assignee.",
+    });
+  }
+
+  return {
+    warnings,
+    unaccountedMs,
   };
 }
 
@@ -554,42 +768,96 @@ async function fetchOpenProjectSprintTasks({
         config.baseUrl,
         `/projects/${projectIdentifier}/work_packages/${wp.id}/github`
       ),
+      githubPullRequestsHref: wp._links?.github_pull_requests?.href || "",
+      timeEntriesHref: wp._links?.timeEntries?.href || "",
     }))
     .sort((a, b) => Number(a.displayId) - Number(b.displayId));
 
   const tasksWithTimeMetrics = await Promise.all(
     tasks.map(async (task) => {
-      const changesResult = await fetchWorkPackageStatusChanges({
-        baseUrl: config.baseUrl,
-        apiKey: config.apiKey,
-        workPackageId: task.id,
-      });
+      const [changesResult, githubActivityResult, loggedWorkResult] = await Promise.all([
+        fetchWorkPackageStatusChanges({
+          baseUrl: config.baseUrl,
+          apiKey: config.apiKey,
+          workPackageId: task.id,
+        }),
+        fetchWorkPackageGithubActivity({
+          baseUrl: config.baseUrl,
+          apiKey: config.apiKey,
+          workPackageId: task.id,
+          href: task.githubPullRequestsHref,
+        }),
+        fetchWorkPackageLoggedWork({
+          baseUrl: config.baseUrl,
+          apiKey: config.apiKey,
+          href: task.timeEntriesHref,
+        }),
+      ]);
+
+      const githubActivity = githubActivityResult.ok
+        ? githubActivityResult.activity
+        : { pullRequestCount: 0, latest: null, unavailable: true };
+      const loggedWork = loggedWorkResult.ok
+        ? loggedWorkResult.loggedWork
+        : { totalMs: 0, entryCount: 0, entries: [], unavailable: true };
+      const { githubPullRequestsHref, timeEntriesHref, ...publicTask } = task;
 
       if (!changesResult.ok) {
+        const timeMetrics = {
+          cycleStartedAt: null,
+          cycleEndedAt: null,
+          cycleMs: 0,
+          activeMs: 0,
+          blockedMs: 0,
+          developmentStartedAt: null,
+          developedAt: null,
+          developMs: 0,
+          currentStatusCategory: statusCategory(task.status),
+          statusChanges: [],
+          unavailable: true,
+        };
+        const warningResult = taskWarnings({
+          task,
+          timeMetrics,
+          loggedWork,
+          githubActivity,
+        });
+
         return {
-          ...task,
+          ...publicTask,
+          githubActivity,
+          loggedWork,
           timeMetrics: {
-            cycleStartedAt: null,
-            cycleEndedAt: null,
-            cycleMs: 0,
-            activeMs: 0,
-            blockedMs: 0,
-            currentStatusCategory: statusCategory(task.status),
-            statusChanges: [],
-            unavailable: true,
+            ...timeMetrics,
+            unaccountedMs: warningResult.unaccountedMs,
           },
+          warnings: warningResult.warnings,
         };
       }
 
+      const timeMetrics = calculateTimeMetrics({
+        createdAt: task.createdAt,
+        updatedAt: task.updatedAt,
+        currentStatus: task.status,
+        statusChanges: changesResult.changes,
+        businessHoursRule,
+      });
+      const warningResult = taskWarnings({
+        task,
+        timeMetrics,
+        loggedWork,
+        githubActivity,
+      });
+
       return {
-        ...task,
-        timeMetrics: calculateTimeMetrics({
-          createdAt: task.createdAt,
-          updatedAt: task.updatedAt,
-          currentStatus: task.status,
-          statusChanges: changesResult.changes,
-          businessHoursRule,
-        }),
+        ...publicTask,
+        githubActivity,
+        loggedWork,
+        timeMetrics: {
+          ...timeMetrics,
+          unaccountedMs: warningResult.unaccountedMs,
+        },
+        warnings: warningResult.warnings,
       };
     })
   );

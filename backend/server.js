@@ -111,18 +111,27 @@ app.get("/api/progress", async (req, res) => {
     tasks.length === 0
       ? 0
       : Math.round(tasks.reduce((sum, task) => sum + task.progress, 0) / tasks.length);
-  const activeTasks = tasks.filter((task) => task.timeMetrics?.activeMs > 0);
-  const averageActiveMs =
-    activeTasks.length === 0
-      ? 0
-      : Math.round(
-          activeTasks.reduce((sum, task) => sum + task.timeMetrics.activeMs, 0) /
-            activeTasks.length
-        );
   const totalBlockedMs = tasks.reduce(
     (sum, task) => sum + (task.timeMetrics?.blockedMs || 0),
     0
   );
+  const totalLoggedMs = tasks.reduce(
+    (sum, task) => sum + (task.loggedWork?.totalMs || 0),
+    0
+  );
+  const totalUnaccountedMs = tasks.reduce(
+    (sum, task) => sum + (task.timeMetrics?.unaccountedMs || 0),
+    0
+  );
+  const developedTasks = tasks.filter((task) => task.timeMetrics?.developMs > 0);
+  const averageDevelopMs =
+    developedTasks.length === 0
+      ? 0
+      : Math.round(
+          developedTasks.reduce((sum, task) => sum + task.timeMetrics.developMs, 0) /
+            developedTasks.length
+        );
+  const warningCount = tasks.reduce((sum, task) => sum + (task.warnings?.length || 0), 0);
 
   return res.json({
     summary: {
@@ -131,8 +140,12 @@ app.get("/api/progress", async (req, res) => {
       inProgressTasks: tasks.filter((task) => task.progress > 0 && task.progress < 100).length,
       notStartedTasks: tasks.filter((task) => task.progress === 0).length,
       averageProgress,
-      averageActiveMs,
       totalBlockedMs,
+      totalLoggedMs,
+      totalUnaccountedMs,
+      developedTasks: developedTasks.length,
+      averageDevelopMs,
+      warningCount,
     },
     tasks,
   });

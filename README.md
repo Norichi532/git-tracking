@@ -77,8 +77,12 @@ Mỗi task hiển thị:
 - Priority
 - Percentage done
 - Thời điểm cập nhật gần nhất
-- Cycle time, active time và blocked time
-- Link GitHub activity trong OpenProject nếu có
+- Dev time từ `In progress` đến `Developed`
+- Logged work từ time entries của OpenProject
+- Phần thời gian chưa phân bổ
+- Blocked time
+- Last GitHub activity từ OpenProject GitHub integration
+- Cảnh báo dữ liệu hoặc cảnh báo vận hành nếu có
 
 ### Tổng quan tiến độ
 
@@ -88,8 +92,11 @@ Dashboard tính các chỉ số:
 - Tiến độ trung bình
 - Số task hoàn thành
 - Số task đang làm
-- Active time trung bình
+- Dev time trung bình cho các task đã đi tới `Developed`
+- Tổng logged work
+- Tổng thời gian chưa phân bổ
 - Blocked time tổng
+- Tổng số cảnh báo
 
 Progress được tính từ OpenProject:
 
@@ -97,15 +104,18 @@ Progress được tính từ OpenProject:
 2. Nếu không có %, task có status đóng/hoàn thành được tính là 100%.
 3. Các task còn lại được tính là 0%.
 
-### Cách tính thời gian làm task
+### Cách tính thời gian đi qua pipeline
 
-Dashboard tính thời gian dựa trên lịch sử thay đổi status của Work Package trong OpenProject.
+Dashboard tính thời gian dựa trên lịch sử thay đổi status của Work Package trong OpenProject. Mục tiêu không phải chứng minh nhân viên code đủ 8 tiếng/ngày, mà là đo task đi qua pipeline trong bao lâu và đối chiếu với logged work để ước lượng effort thực tế.
 
 Các chỉ số:
 
 - `Cycle time`: tính từ lần đầu task vào trạng thái đang làm/bị block đến lúc task đóng. Nếu task chưa đóng, tính đến thời điểm hiện tại.
+- `Dev time`: tính từ lần đầu task vào `In progress` đến lần đầu task vào `Developed`.
 - `Active time`: tổng thời gian task nằm trong trạng thái đang làm, review, testing hoặc development.
 - `Blocked time`: tổng thời gian task nằm trong trạng thái blocked.
+- `Logged work`: tổng thời gian nhân viên log vào Work Package qua OpenProject time entries.
+- `Unaccounted time`: phần chênh lệch còn lại, tính theo công thức `max(0, Dev time - Logged work - Blocked time)`.
 
 Nhóm status mặc định:
 
@@ -123,8 +133,23 @@ Specified -> In progress -> Blocked -> In progress -> Closed
 Dashboard sẽ tính:
 
 - `Cycle time`: từ lần đầu vào `In progress` đến lúc vào `Closed`.
+- `Dev time`: từ lần đầu vào `In progress` đến lúc vào `Developed`, nếu task có mốc `Developed`.
 - `Active time`: tổng hai khoảng `In progress`.
 - `Blocked time`: khoảng nằm trong `Blocked`.
+- `Logged work`: tổng time entries đã log trên Work Package đó.
+- `Unaccounted time`: phần thời gian pipeline chưa được giải thích bởi logged work hoặc blocked time.
+
+### Cảnh báo
+
+Dashboard hiển thị cảnh báo ở cấp task để PM biết chỗ nào cần trao đổi thêm với team:
+
+- Task đã vào `In progress` nhưng chưa tới `Developed`.
+- Task đã bắt đầu dev nhưng chưa có logged work.
+- Logged work thấp bất thường so với dev time.
+- Thời gian chưa phân bổ từ 4 giờ làm việc trở lên.
+- Blocked time từ 2 giờ làm việc trở lên.
+- Task đang làm nhưng chưa có pull request liên kết trong OpenProject.
+- Task chưa có assignee.
 
 ### Rule giờ làm việc
 
@@ -232,6 +257,8 @@ git-tracking/
 └── frontend/
     ├── index.html
     ├── app.js
+    ├── settings.html
+    ├── settings.js
     └── style.css
 ```
 
@@ -297,7 +324,7 @@ const API_BASE = "http://localhost:3000";
 GET /api/openproject/projects
 GET /api/openproject/projects/:id/members
 GET /api/openproject/projects/:id/sprints
-GET /api/progress?openProjectId=&openProjectUserId=&sprintId=
+GET /api/progress?openProjectId=&openProjectUserId=&sprintId=&businessHours=
 ```
 
 Ghi chú: endpoint `/sprints` trả về OpenProject Versions để frontend giữ đúng thuật ngữ Scrum.
@@ -313,6 +340,7 @@ Các phần sau không còn cần thiết vì GitHub history được quản lý
 - Local user CRUD
 - Mapping nhiều Git email trong dashboard
 - Suy luận progress từ commit message custom
+- Tính effort thực tế bằng cách đếm toàn bộ commit của user
 
 ## Luồng vận hành đề xuất
 
@@ -328,19 +356,15 @@ Các phần sau không còn cần thiết vì GitHub history được quản lý
 
 - Dashboard chỉ đọc dữ liệu, không cập nhật ngược về OpenProject.
 - Dashboard phụ thuộc vào dữ liệu Work Package và GitHub integration đã được cấu hình đúng trong OpenProject.
+- Logged work chỉ phản ánh dữ liệu nhân viên log trong OpenProject, không tự động chứng minh toàn bộ thời gian code thực tế.
+- Unaccounted time là tín hiệu để PM trao đổi thêm, không nên dùng như kết luận đánh giá hiệu suất độc lập.
 - Nếu Work Package không có `percentageDone`, progress sẽ phụ thuộc vào status đóng/mở.
 - Chưa có authentication riêng cho dashboard.
-- Database đang là file JSON, phù hợp demo hoặc nội bộ nhỏ, chưa phù hợp production lớn.
-- Progress từ commit là suy luận dựa trên convention, không thay thế hoàn toàn trạng thái chính thức trong OpenProject.
-- Dashboard phụ thuộc vào việc team đặt commit message đúng quy tắc.
-- Frontend hiện là HTML/CSS/JS thuần, chưa có authentication.
+- Frontend hiện là HTML/CSS/JS thuần.
 
 ## Định hướng nâng cấp
 
 - Thêm authentication cho dashboard.
-- Chuyển database từ JSON sang PostgreSQL.
-- Đồng bộ trạng thái task ngược lại OpenProject khi commit `done`.
 - Thêm báo cáo theo sprint/team/member.
-- Thêm kiểm tra commit convention trong CI hoặc Git hook.
-
-nice
+- Thêm benchmark theo loại task để so sánh estimate, logged work và dev time.
+- Thêm kiểm tra convention branch/PR trong CI hoặc Git hook để đảm bảo OpenProject liên kết GitHub activity ổn định.

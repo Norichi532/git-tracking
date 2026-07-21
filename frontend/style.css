@@ -285,6 +285,62 @@ button:hover { opacity: 0.88; }
   background: var(--green-soft);
   color: var(--green);
 }
+.github-activity {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 9px 10px;
+  border: 1px solid #C7D2FE;
+  border-radius: 7px;
+  background: #F5F7FF;
+  font-size: 12px;
+}
+.github-activity.is-empty {
+  border-color: var(--line);
+  background: var(--paper);
+  color: var(--muted);
+}
+.github-label {
+  font-family: var(--mono);
+  font-weight: 700;
+  color: #3730A3;
+  text-transform: uppercase;
+  font-size: 11px;
+}
+.github-activity.is-empty .github-label {
+  color: var(--muted);
+}
+.github-activity a {
+  color: #3730A3;
+  font-weight: 700;
+  text-decoration: none;
+}
+.github-activity a:hover { text-decoration: underline; }
+.task-warnings {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+.warning-chip {
+  border-radius: 6px;
+  border: 1px solid transparent;
+  padding: 7px 8px;
+  font-size: 12px;
+  line-height: 1.35;
+}
+.warning-chip.is-warning {
+  background: var(--rust-soft);
+  border-color: #FDBA74;
+  color: var(--rust);
+}
+.warning-chip.is-info {
+  background: var(--blue-soft);
+  border-color: #BFDBFE;
+  color: var(--focus);
+}
 .task-time {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
@@ -302,16 +358,21 @@ button:hover { opacity: 0.88; }
   font-family: var(--mono);
   font-size: 13px;
 }
-.time-chip.is-cycle {
-  background: var(--gray-soft);
-  color: var(--muted);
+.time-chip.is-develop {
+  background: var(--green-soft);
+  color: var(--green);
 }
-.time-chip.is-cycle strong { color: var(--ink); }
-.time-chip.is-active {
-  background: var(--blue-soft);
-  color: var(--focus);
+.time-chip.is-develop strong { color: var(--green); }
+.time-chip.is-logged {
+  background: var(--violet-soft);
+  color: var(--violet);
 }
-.time-chip.is-active strong { color: var(--focus); }
+.time-chip.is-logged strong { color: var(--violet); }
+.time-chip.is-unaccounted {
+  background: var(--amber-soft);
+  color: var(--amber);
+}
+.time-chip.is-unaccounted strong { color: var(--amber); }
 .time-chip.is-blocked {
   background: var(--rust-soft);
   color: var(--rust);
