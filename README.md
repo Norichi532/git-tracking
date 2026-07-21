@@ -289,3 +289,5 @@ POST /webhooks/git
 - Đồng bộ trạng thái task ngược lại OpenProject khi commit `done`.
 - Thêm báo cáo theo sprint/team/member.
 - Thêm kiểm tra commit convention trong CI hoặc Git hook.
+
+nice
