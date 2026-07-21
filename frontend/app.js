@@ -1,277 +1,55 @@
 const $ = (sel) => document.querySelector(sel);
 
-// Dia chi backend - doi gia tri nay neu backend chay o cong/domain khac.
-// Vi du khi deploy that: const API_BASE = "https://api.ten-mien-cua-ban.com";
 const API_BASE = "http://localhost:3000";
+const BUSINESS_HOURS_KEY = "gitTrackingBusinessHours";
+const DEFAULT_BUSINESS_HOURS = {
+  enabled: true,
+  timezoneOffsetMinutes: 420,
+  workDays: [1, 2, 3, 4, 5],
+  startTime: "08:00",
+  endTime: "17:00",
+  breaks: [{ startTime: "12:00", endTime: "13:00" }],
+  holidays: [],
+};
 
-let projects = [];
-let users = [];
 let openProjectProjects = [];
-let openProjectMembers = [];
 let progressMembers = [];
 let progressSprints = [];
 
-// Mau cho tung du an, gan on dinh theo ten (de "graph line" nhat quan)
-const PALETTE = ["#1F8B4C", "#2563EB", "#C2410C", "#7C3AED", "#0891B2", "#B45309"];
-function colorForProject(name) {
-  let hash = 0;
-  for (const ch of name) hash = (hash * 31 + ch.charCodeAt(0)) % PALETTE.length;
-  return PALETTE[hash];
-}
-
-async function api(path, options) {
+async function api(path) {
   const res = await fetch(API_BASE + path, {
     headers: { "Content-Type": "application/json" },
-    ...options,
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(body.error || `Loi ${res.status}`);
   }
-  return res.status === 204 ? null : res.json();
+  return res.json();
 }
 
-// ---------------------------------------------------------------------------
-// Projects
-// ---------------------------------------------------------------------------
-async function loadProjects() {
-  projects = await api("/api/projects");
-
-  $("#project-list").innerHTML = projects
-    .map(
-      (p) => `
-      <li>
-        <span>${p.name} <span class="meta">${p.repoUrl}</span></span>
-        <button data-id="${p.id}" class="del-project">✕</button>
-      </li>`
-    )
-    .join("") || "";
-
-  document.querySelectorAll(".del-project").forEach((btn) => {
-    btn.onclick = async () => {
-      await api(`/api/projects/${btn.dataset.id}`, { method: "DELETE" });
-      await loadProjects();
-      await loadProgressBoard();
+function businessHoursRule() {
+  try {
+    return {
+      ...DEFAULT_BUSINESS_HOURS,
+      ...JSON.parse(localStorage.getItem(BUSINESS_HOURS_KEY) || "{}"),
     };
-  });
+  } catch {
+    return DEFAULT_BUSINESS_HOURS;
+  }
 }
 
-function openProjectProjectOptions(placeholder) {
+function projectOptions(placeholder) {
   return (
     `<option value="">${placeholder}</option>` +
     openProjectProjects
       .map(
-        (p) =>
-          `<option value="${p.id}">${p.name}${
-            p.identifier ? ` (${p.identifier})` : ""
+        (project) =>
+          `<option value="${project.id}">${project.name}${
+            project.identifier ? ` (${project.identifier})` : ""
           }</option>`
       )
       .join("")
   );
-}
-
-async function loadOpenProjectProjects() {
-  const select = $("#openproject-project-select");
-  const statusEl = $("#openproject-status");
-
-  select.disabled = true;
-  select.innerHTML = `<option value="">Đang tải dự án từ OpenProject...</option>`;
-  statusEl.textContent = "";
-  statusEl.className = "webhook-status neutral";
-
-  try {
-    openProjectProjects = await api("/api/openproject/projects");
-
-    if (openProjectProjects.length === 0) {
-      select.innerHTML = `<option value="">OpenProject chưa có dự án nào</option>`;
-      statusEl.textContent = "Không tìm thấy dự án nào từ OpenProject.";
-      return;
-    }
-
-    select.innerHTML =
-      openProjectProjectOptions("Chọn dự án từ OpenProject");
-    select.disabled = false;
-    $("#member-project-select").innerHTML =
-      openProjectProjectOptions("Chọn dự án để tải nhân viên");
-    $("#progress-project-select").innerHTML =
-      openProjectProjectOptions("Chọn dự án");
-  } catch (err) {
-    select.innerHTML = `<option value="">Không tải được dự án OpenProject</option>`;
-    $("#member-project-select").innerHTML =
-      `<option value="">Không tải được dự án OpenProject</option>`;
-    $("#progress-project-select").innerHTML =
-      `<option value="">Không tải được dự án OpenProject</option>`;
-    statusEl.textContent = err.message;
-    statusEl.className = "webhook-status error";
-  }
-}
-
-$("#project-form").addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const form = new FormData(e.target);
-  const selectedProject = openProjectProjects.find(
-    (project) => String(project.id) === String(form.get("openProjectId"))
-  );
-
-  if (!selectedProject) {
-    $("#openproject-status").textContent = "Hãy chọn một dự án OpenProject hợp lệ.";
-    $("#openproject-status").className = "webhook-status error";
-    return;
-  }
-
-  const created = await api("/api/projects", {
-    method: "POST",
-    body: JSON.stringify({
-      openProjectId: selectedProject.id,
-      repoUrl: form.get("repoUrl"),
-    }),
-  });
-  e.target.reset();
-  $("#openproject-status").textContent = "";
-  $("#openproject-status").className = "webhook-status neutral";
-  await loadProjects();
-
-  const ws = created.webhookSetup;
-  const statusEl = $("#project-webhook-status");
-  if (!ws || !ws.attempted) {
-    statusEl.textContent = ws?.reason
-      ? `Chưa tự động gắn webhook: ${ws.reason}`
-      : "";
-    statusEl.className = "webhook-status neutral";
-  } else if (ws.ok) {
-    statusEl.textContent = "✓ Đã tự động gắn webhook lên GitHub thành công.";
-    statusEl.className = "webhook-status success";
-  } else {
-    statusEl.textContent = `✕ Gắn webhook tự động thất bại: ${ws.message}`;
-    statusEl.className = "webhook-status error";
-  }
-});
-
-// ---------------------------------------------------------------------------
-// Users
-// ---------------------------------------------------------------------------
-async function loadOpenProjectMembers(projectId) {
-  const select = $("#openproject-member-select");
-  const statusEl = $("#openproject-member-status");
-
-  openProjectMembers = [];
-  select.disabled = true;
-  select.innerHTML = `<option value="">Đang tải nhân viên...</option>`;
-  statusEl.textContent = "";
-  statusEl.className = "webhook-status neutral";
-
-  if (!projectId) {
-    select.innerHTML = `<option value="">Chọn nhân viên từ OpenProject</option>`;
-    return;
-  }
-
-  try {
-    openProjectMembers = await api(`/api/openproject/projects/${projectId}/members`);
-
-    if (openProjectMembers.length === 0) {
-      select.innerHTML = `<option value="">Dự án chưa có nhân viên</option>`;
-      statusEl.textContent = "Không tìm thấy nhân viên nào trong dự án OpenProject này.";
-      return;
-    }
-
-    select.innerHTML =
-      `<option value="">Chọn nhân viên từ OpenProject</option>` +
-      openProjectMembers
-        .map(
-          (member) =>
-            `<option value="${member.id}">${member.name}${
-              member.roles?.length ? ` - ${member.roles.join(", ")}` : ""
-            }</option>`
-        )
-        .join("");
-    select.disabled = false;
-  } catch (err) {
-    select.innerHTML = `<option value="">Không tải được nhân viên</option>`;
-    statusEl.textContent = err.message;
-    statusEl.className = "webhook-status error";
-  }
-}
-
-async function loadUsers() {
-  users = await api("/api/users");
-
-  $("#user-list").innerHTML = users
-    .map(
-      (u) => `
-      <li>
-        <span>${u.name} <span class="meta">${u.gitEmails.join(", ")}</span></span>
-        <button data-id="${u.id}" class="del-user">✕</button>
-      </li>`
-    )
-    .join("") || "";
-
-  document.querySelectorAll(".del-user").forEach((btn) => {
-    btn.onclick = async () => {
-      await api(`/api/users/${btn.dataset.id}`, { method: "DELETE" });
-      await loadUsers();
-      await loadProgressBoard();
-    };
-  });
-}
-
-$("#member-project-select").addEventListener("change", async (e) => {
-  $("#user-form").elements.gitEmails.value = "";
-  await loadOpenProjectMembers(e.target.value);
-});
-
-$("#openproject-member-select").addEventListener("change", (e) => {
-  const selectedMember = openProjectMembers.find(
-    (member) => String(member.id) === String(e.target.value)
-  );
-  $("#user-form").elements.gitEmails.value = selectedMember?.email || "";
-});
-
-$("#user-form").addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const form = new FormData(e.target);
-  const selectedMember = openProjectMembers.find(
-    (member) => String(member.id) === String(form.get("openProjectUserId"))
-  );
-
-  if (!selectedMember) {
-    $("#openproject-member-status").textContent =
-      "Hãy chọn một nhân viên OpenProject hợp lệ.";
-    $("#openproject-member-status").className = "webhook-status error";
-    return;
-  }
-
-  await api("/api/users", {
-    method: "POST",
-    body: JSON.stringify({
-      openProjectUserId: selectedMember.id,
-      name: selectedMember.name,
-      gitEmails: form.get("gitEmails"),
-    }),
-  });
-  e.target.reset();
-  $("#openproject-member-select").disabled = true;
-  $("#openproject-member-select").innerHTML =
-    `<option value="">Chọn nhân viên từ OpenProject</option>`;
-  $("#openproject-member-status").textContent = "";
-  $("#openproject-member-status").className = "webhook-status neutral";
-  await loadUsers();
-  await loadProgressBoard();
-});
-
-// ---------------------------------------------------------------------------
-// Simulate push
-
-// ---------------------------------------------------------------------------
-// Progress board
-// ---------------------------------------------------------------------------
-function timeAgo(iso) {
-  const diffMs = Date.now() - new Date(iso).getTime();
-  const mins = Math.floor(diffMs / 60000);
-  if (mins < 1) return "vừa xong";
-  if (mins < 60) return `${mins} phút trước`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours} giờ trước`;
-  return `${Math.floor(hours / 24)} ngày trước`;
 }
 
 function progressColor(progress) {
@@ -281,12 +59,100 @@ function progressColor(progress) {
   return "var(--rust)";
 }
 
-function renderProgressEmpty(message) {
+function statusClass(status) {
+  const normalized = String(status || "").toLowerCase();
+  if (
+    normalized.includes("closed") ||
+    normalized.includes("done") ||
+    normalized.includes("resolved") ||
+    normalized.includes("đóng") ||
+    normalized.includes("hoàn thành")
+  ) {
+    return "is-done";
+  }
+  if (
+    normalized.includes("progress") ||
+    normalized.includes("review") ||
+    normalized.includes("test") ||
+    normalized.includes("qa") ||
+    normalized.includes("đang")
+  ) {
+    return "is-active";
+  }
+  if (normalized.includes("block") || normalized.includes("chặn")) {
+    return "is-blocked";
+  }
+  if (normalized.includes("rejected") || normalized.includes("cancel")) {
+    return "is-muted";
+  }
+  return "is-planned";
+}
+
+function priorityClass(priority) {
+  const normalized = String(priority || "").toLowerCase();
+  if (
+    normalized.includes("high") ||
+    normalized.includes("urgent") ||
+    normalized.includes("immediate") ||
+    normalized.includes("cao") ||
+    normalized.includes("khẩn")
+  ) {
+    return "is-high";
+  }
+  if (normalized.includes("low") || normalized.includes("thấp")) {
+    return "is-low";
+  }
+  return "is-normal";
+}
+
+function formatDate(iso) {
+  if (!iso) return "Chưa cập nhật";
+  return new Intl.DateTimeFormat("vi-VN", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(new Date(iso));
+}
+
+function formatDuration(ms) {
+  if (!ms || ms <= 0) return "0h";
+
+  const totalMinutes = Math.round(ms / 60000);
+  const days = Math.floor(totalMinutes / 1440);
+  const hours = Math.floor((totalMinutes % 1440) / 60);
+  const minutes = totalMinutes % 60;
+  const parts = [];
+
+  if (days) parts.push(`${days}d`);
+  if (hours) parts.push(`${hours}h`);
+  if (!days && minutes) parts.push(`${minutes}m`);
+
+  return parts.join(" ") || "0h";
+}
+
+function renderEmpty(message) {
   $("#progress-summary").innerHTML = "";
   $("#task-board").innerHTML = `<p class="empty-state">${message}</p>`;
 }
 
-async function loadProgressMembers(projectId) {
+async function loadProjects() {
+  const select = $("#progress-project-select");
+  const statusEl = $("#progress-status");
+
+  select.disabled = true;
+  select.innerHTML = `<option value="">Đang tải dự án...</option>`;
+
+  try {
+    openProjectProjects = await api("/api/openproject/projects");
+    select.innerHTML = projectOptions("Chọn dự án");
+    select.disabled = openProjectProjects.length === 0;
+  } catch (err) {
+    select.innerHTML = `<option value="">Không tải được dự án</option>`;
+    statusEl.textContent = err.message;
+    statusEl.className = "status-line error";
+  }
+}
+
+async function loadMembers(projectId) {
   const select = $("#progress-member-select");
   progressMembers = [];
   select.disabled = true;
@@ -300,11 +166,13 @@ async function loadProgressMembers(projectId) {
   progressMembers = await api(`/api/openproject/projects/${projectId}/members`);
   select.innerHTML =
     `<option value="">Chọn thành viên</option>` +
-    progressMembers.map((member) => `<option value="${member.id}">${member.name}</option>`).join("");
+    progressMembers
+      .map((member) => `<option value="${member.id}">${member.name}</option>`)
+      .join("");
   select.disabled = progressMembers.length === 0;
 }
 
-async function loadProgressSprints(projectId) {
+async function loadSprints(projectId) {
   const select = $("#progress-sprint-select");
   progressSprints = [];
   select.disabled = true;
@@ -337,18 +205,19 @@ async function loadProgressBoard() {
   const statusEl = $("#progress-status");
 
   if (!projectId || !memberId || !sprintId) {
-    renderProgressEmpty("Chọn dự án, thành viên và sprint để xem các task được giao cùng tiến độ commit.");
+    renderEmpty("Chọn dự án, thành viên và sprint để xem tiến độ.");
     return;
   }
 
   statusEl.textContent = "Đang tải tiến độ...";
-  statusEl.className = "webhook-status neutral";
+  statusEl.className = "status-line neutral";
 
   try {
     const params = new URLSearchParams({
       openProjectId: projectId,
       openProjectUserId: memberId,
       sprintId,
+      businessHours: JSON.stringify(businessHoursRule()),
     });
     const result = await api(`/api/progress?${params.toString()}`);
     statusEl.textContent = "";
@@ -358,6 +227,8 @@ async function loadProgressBoard() {
       <div><strong>${result.summary.averageProgress}%</strong><span>Trung bình</span></div>
       <div><strong>${result.summary.doneTasks}</strong><span>Hoàn thành</span></div>
       <div><strong>${result.summary.inProgressTasks}</strong><span>Đang làm</span></div>
+      <div><strong>${formatDuration(result.summary.averageActiveMs)}</strong><span>Active TB</span></div>
+      <div><strong>${formatDuration(result.summary.totalBlockedMs)}</strong><span>Blocked</span></div>
     `;
 
     if (result.tasks.length === 0) {
@@ -369,20 +240,15 @@ async function loadProgressBoard() {
     $("#task-board").innerHTML = result.tasks
       .map((task) => {
         const color = progressColor(task.progress);
-        const latestCommit = task.latestCommit
-          ? `<span>Commit mới nhất: ${timeAgo(task.latestCommit.commitDate)}</span>`
-          : `<span>Chưa có commit theo quy tắc</span>`;
-        const commits = task.commits.length
-          ? task.commits
-              .map(
-                (commit) => `
-                <li>
-                  <span>${commit.message}</span>
-                  <code>${commit.id.slice(0, 7)}</code>
-                </li>`
-              )
-              .join("")
-          : `<li><span>Không có commit liên kết task này</span></li>`;
+        const metrics = task.timeMetrics || {};
+        const githubLink = task.githubUrl
+          ? `<a class="meta-chip is-github" href="${task.githubUrl}" target="_blank" rel="noreferrer">GitHub activity</a>`
+          : `<span class="meta-chip is-muted">GitHub activity nằm trong OpenProject</span>`;
+        const cycleRange = metrics.cycleStartedAt
+          ? `${formatDate(metrics.cycleStartedAt)} -> ${
+              metrics.cycleEndedAt ? formatDate(metrics.cycleEndedAt) : "đang chạy"
+            }`
+          : "Chưa bắt đầu";
 
         return `
           <article class="task-card">
@@ -394,43 +260,42 @@ async function loadProgressBoard() {
               <div class="progress-bar" style="width:${task.progress}%;background:${color}"></div>
             </div>
             <div class="task-meta">
-              <span>${task.type || "Task"}</span>
-              <span>${task.status || "Chưa có trạng thái"}</span>
-              <span>${task.commitCount} commit</span>
-              ${latestCommit}
+              <span class="meta-chip is-type">${task.type || "Task"}</span>
+              <span class="meta-chip ${statusClass(task.status)}">${task.status || "Chưa có trạng thái"}</span>
+              <span class="meta-chip ${priorityClass(task.priority)}">${task.priority || "Chưa có ưu tiên"}</span>
+              <span class="meta-chip is-date">Cập nhật: ${formatDate(task.updatedAt)}</span>
+              ${githubLink}
             </div>
-            <ul class="task-commits">${commits}</ul>
+            <div class="task-time">
+              <span class="time-chip is-cycle"><strong>${formatDuration(metrics.cycleMs)}</strong> cycle time</span>
+              <span class="time-chip is-active"><strong>${formatDuration(metrics.activeMs)}</strong> active time</span>
+              <span class="time-chip is-blocked"><strong>${formatDuration(metrics.blockedMs)}</strong> blocked time</span>
+              <span class="time-chip is-range">${cycleRange}</span>
+            </div>
           </article>`;
       })
       .join("");
   } catch (err) {
     statusEl.textContent = err.message;
-    statusEl.className = "webhook-status error";
+    statusEl.className = "status-line error";
   }
 }
 
-$("#progress-project-select").addEventListener("change", async (e) => {
+$("#progress-project-select").addEventListener("change", async (event) => {
+  const projectId = event.target.value;
   $("#progress-status").textContent = "";
   $("#progress-member-select").innerHTML = `<option value="">Chọn thành viên</option>`;
   $("#progress-sprint-select").innerHTML = `<option value="">Chọn sprint</option>`;
-  renderProgressEmpty("Chọn thành viên và sprint để xem tiến độ.");
+  renderEmpty("Chọn thành viên và sprint để xem tiến độ.");
 
-  await Promise.all([
-    loadProgressMembers(e.target.value),
-    loadProgressSprints(e.target.value),
-  ]);
+  await Promise.all([loadMembers(projectId), loadSprints(projectId)]);
 });
 
 $("#progress-member-select").addEventListener("change", loadProgressBoard);
 $("#progress-sprint-select").addEventListener("change", loadProgressBoard);
 $("#progress-refresh-btn").addEventListener("click", loadProgressBoard);
 
-// ---------------------------------------------------------------------------
-// Init
-// ---------------------------------------------------------------------------
 (async function init() {
-  await loadOpenProjectProjects();
   await loadProjects();
-  await loadUsers();
   await loadProgressBoard();
 })();

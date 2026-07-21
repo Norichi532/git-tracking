@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Rule giờ làm việc</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark">◇</span>
+      <div>
+        <h1>Rule giờ làm việc</h1>
+        <p class="tagline">Cấu hình cách dashboard tính cycle time, active time và blocked time.</p>
+      </div>
+    </div>
+    <div class="source-hint">
+      <a href="index.html">Dashboard</a>
+    </div>
+  </header>
+
+  <main class="layout dashboard-layout">
+    <section class="card settings-card">
+      <h2>Business hours</h2>
+      <form id="business-hours-form" class="settings-form">
+        <label class="checkbox-row">
+          <input type="checkbox" name="enabled" />
+          <span>Chỉ tính trong giờ làm việc</span>
+        </label>
+
+        <div class="settings-grid">
+          <label>
+            <span>Giờ bắt đầu</span>
+            <input type="time" name="startTime" required />
+          </label>
+          <label>
+            <span>Giờ kết thúc</span>
+            <input type="time" name="endTime" required />
+          </label>
+          <label>
+            <span>Nghỉ trưa bắt đầu</span>
+            <input type="time" name="breakStartTime" />
+          </label>
+          <label>
+            <span>Nghỉ trưa kết thúc</span>
+            <input type="time" name="breakEndTime" />
+          </label>
+          <label>
+            <span>UTC offset, phút</span>
+            <input type="number" name="timezoneOffsetMinutes" step="30" required />
+          </label>
+        </div>
+
+        <div class="weekday-group">
+          <label><input type="checkbox" name="workDays" value="1" /> Thứ 2</label>
+          <label><input type="checkbox" name="workDays" value="2" /> Thứ 3</label>
+          <label><input type="checkbox" name="workDays" value="3" /> Thứ 4</label>
+          <label><input type="checkbox" name="workDays" value="4" /> Thứ 5</label>
+          <label><input type="checkbox" name="workDays" value="5" /> Thứ 6</label>
+          <label><input type="checkbox" name="workDays" value="6" /> Thứ 7</label>
+          <label><input type="checkbox" name="workDays" value="0" /> CN</label>
+        </div>
+
+        <label>
+          <span>Ngày nghỉ, mỗi dòng một ngày YYYY-MM-DD</span>
+          <textarea name="holidays" rows="5" placeholder="2026-01-01&#10;2026-04-30"></textarea>
+        </label>
+
+        <div class="settings-actions">
+          <button type="submit">Lưu rule</button>
+          <button type="button" id="reset-rule-btn">Khôi phục mặc định</button>
+        </div>
+        <p id="settings-status" class="status-line neutral"></p>
+      </form>
+    </section>
+  </main>
+
+  <script src="settings.js"></script>
+</body>
+</html>

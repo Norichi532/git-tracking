@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Git Commit Tracker — Demo</title>
+<title>Git Tracking Dashboard</title>
 <link rel="stylesheet" href="style.css" />
 </head>
 <body>
@@ -12,80 +12,43 @@
     <div class="brand">
       <span class="brand-mark">◇</span>
       <div>
-        <h1>Commit Tracker</h1>
-        <p class="tagline">Một nguồn, nhiều dự án, một danh tính theo dõi được.</p>
+        <h1>Git Tracking Dashboard</h1>
+        <p class="tagline">Theo dõi tiến độ từ OpenProject và GitHub integration.</p>
       </div>
     </div>
-    <div class="webhook-hint">
+    <div class="source-hint">
       <span class="dot"></span>
-      Webhook endpoint: <code>POST /webhooks/git</code>
+      Source of truth: <code>OpenProject</code>
+      <a href="settings.html">Rule giờ</a>
     </div>
   </header>
 
-  <main class="layout">
-
-    <section class="col setup-col">
-
-      <div class="card">
-        <h2>1. Dự án</h2>
-        <form id="project-form" class="stack">
-          <select name="openProjectId" id="openproject-project-select" required>
-            <option value="">Đang tải dự án từ OpenProject...</option>
-          </select>
-          <input name="repoUrl" placeholder="https://github.com/user/project-a" required />
-          <button type="submit">Thêm dự án</button>
-        </form>
-        <p id="openproject-status" class="webhook-status neutral"></p>
-        <p id="project-webhook-status" class="webhook-status neutral"></p>
-        <ul id="project-list" class="entity-list"></ul>
+  <main class="layout dashboard-layout">
+    <section class="card progress-card">
+      <div class="progress-header">
+        <h2>Tiến độ sprint</h2>
+        <button id="progress-refresh-btn">Làm mới</button>
       </div>
 
-      <div class="card">
-        <h2>2. Người dùng</h2>
-        <form id="user-form" class="stack">
-          <select name="memberProjectId" id="member-project-select" required>
-            <option value="">Chọn dự án để tải nhân viên</option>
-          </select>
-          <select name="openProjectUserId" id="openproject-member-select" required disabled>
-            <option value="">Chọn nhân viên từ OpenProject</option>
-          </select>
-          <input name="gitEmails" placeholder="Email git, cách nhau bởi dấu phẩy" required />
-          <button type="submit">Thêm người dùng</button>
-        </form>
-        <p id="openproject-member-status" class="webhook-status neutral"></p>
-        <ul id="user-list" class="entity-list"></ul>
+      <div class="progress-filters">
+        <select id="progress-project-select">
+          <option value="">Chọn dự án</option>
+        </select>
+        <select id="progress-member-select" disabled>
+          <option value="">Chọn thành viên</option>
+        </select>
+        <select id="progress-sprint-select" disabled>
+          <option value="">Chọn sprint</option>
+        </select>
       </div>
 
-    </section>
+      <p id="progress-status" class="status-line neutral"></p>
 
-    <section class="col feed-col">
-      <div class="card progress-card">
-        <div class="progress-header">
-          <h2>Tiến độ sprint</h2>
-          <button id="progress-refresh-btn">Làm mới</button>
-        </div>
-
-        <div class="progress-filters">
-          <select id="progress-project-select">
-            <option value="">Chọn dự án</option>
-          </select>
-          <select id="progress-member-select" disabled>
-            <option value="">Chọn thành viên</option>
-          </select>
-          <select id="progress-sprint-select" disabled>
-            <option value="">Chọn sprint</option>
-          </select>
-        </div>
-
-        <p id="progress-status" class="webhook-status neutral"></p>
-
-        <div id="progress-summary" class="progress-summary"></div>
-        <div id="task-board" class="task-board">
-          <p class="empty-state">Chọn dự án, thành viên và sprint để xem các task được giao cùng tiến độ commit.</p>
-        </div>
+      <div id="progress-summary" class="progress-summary"></div>
+      <div id="task-board" class="task-board">
+        <p class="empty-state">Chọn dự án, thành viên và sprint để xem tiến độ.</p>
       </div>
     </section>
-
   </main>
 
   <script src="app.js"></script>

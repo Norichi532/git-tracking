@@ -1,166 +1,233 @@
 # Git Tracking Dashboard
 
-Git Tracking Dashboard là công cụ nội bộ giúp team theo dõi tiến độ công việc dựa trên dữ liệu từ OpenProject và commit GitHub. Ứng dụng kết nối ba nguồn thông tin chính:
+Git Tracking Dashboard là dashboard nội bộ dùng để theo dõi tiến độ task theo dự án, thành viên và sprint. Ứng dụng này được thiết kế theo hướng **OpenProject là nguồn dữ liệu chính**.
 
-- OpenProject: danh sách dự án, thành viên, version dùng như sprint, và work package/task.
-- GitHub: webhook push commit từ repository.
-- Local database: lưu project đã kết nối, user mapping và commit nhận được.
+GitHub history không còn được thu thập trực tiếp bởi ứng dụng này. Thay vào đó, team sử dụng **OpenProject GitHub integration** để liên kết branch, pull request và commit với Work Package trong OpenProject.
 
-Mục tiêu của sản phẩm là giúp PM, Scrum Master và team dev nhìn nhanh một thành viên đang xử lý task nào trong sprint, tiến độ đến đâu, và commit nào đang liên quan đến task đó.
+## Mục tiêu sản phẩm
 
-## Tổng quan tính năng
+Dashboard giúp PM, Scrum Master và team dev trả lời nhanh các câu hỏi:
 
-### 1. Quản lý dự án từ OpenProject
+- Trong sprint này, một thành viên đang được giao task nào?
+- Task đang ở trạng thái nào?
+- Tiến độ trung bình của thành viên trong sprint là bao nhiêu?
+- Task nào đã hoàn thành, task nào đang làm, task nào chưa bắt đầu?
+- GitHub activity liên quan đến task nằm ở đâu trong OpenProject?
 
-Người dùng không nhập tên dự án thủ công. Frontend gọi backend để lấy danh sách project từ OpenProject, sau đó chọn project từ dropdown.
+## Nguyên tắc business
 
-Khi thêm project vào hệ thống, người dùng cần nhập thêm GitHub repository URL. Backend lưu:
+### 1. OpenProject là source of truth
 
-- `openProjectId`
-- tên project lấy từ OpenProject
-- `repoUrl`
-- `webhookId` nếu tự động tạo webhook GitHub thành công
+Ứng dụng chỉ đọc dữ liệu từ OpenProject:
 
-### 2. Tự động gắn webhook GitHub
+- Project
+- Member
+- Version, được hiển thị trên frontend như Sprint
+- Work Package
+- Assignee
+- Status
+- Percentage done
+- Link GitHub activity trong Work Package
 
-Khi thêm project, backend có thể tự động tạo webhook trên GitHub repository nếu đã cấu hình đủ:
+Ứng dụng không tự tạo project, user, webhook GitHub hoặc commit history riêng.
 
-- `GITHUB_TOKEN`
-- `WEBHOOK_BASE_URL`
+### 2. GitHub được quản lý bởi OpenProject integration
 
-Webhook GitHub sẽ gửi push event về:
+GitHub repository cần được tích hợp với OpenProject bằng GitHub integration chính thức của OpenProject.
 
-```txt
-POST /webhooks/git
+Khi dev tạo branch, pull request hoặc commit, GitHub activity phải reference đúng Work Package để OpenProject tự liên kết activity đó vào task.
+
+PM xem GitHub activity chính thức trong tab GitHub của từng Work Package trên OpenProject.
+
+### 3. Email GitHub và OpenProject phải trùng nhau
+
+Team thống nhất mỗi nhân viên dùng cùng email cho:
+
+- OpenProject account
+- GitHub account
+- Git local config
+
+Ví dụ:
+
+```bash
+git config user.name "Binh Nguyen"
+git config user.email "binh@company.com"
 ```
 
-Backend nhận commit, tìm project theo repository URL và lưu commit vào local database.
+Việc chuẩn hóa email giúp GitHub/OpenProject nhận diện activity nhất quán theo nhân sự, không cần mapping thủ công trong dashboard.
 
-### 3. Quản lý người dùng từ OpenProject
+## Tính năng hiện tại
 
-Người dùng được chọn từ danh sách thành viên của project trong OpenProject.
+### Dashboard tiến độ sprint
 
-Luồng thao tác:
-
-1. Chọn project OpenProject.
-2. Frontend tải danh sách thành viên của project.
-3. Chọn thành viên.
-4. Hệ thống tự điền email nếu OpenProject trả về email.
-5. Người dùng có thể nhập hoặc chỉnh Git email để map commit chính xác.
-
-Mỗi user có thể có nhiều Git email để xử lý trường hợp một dev commit bằng nhiều email khác nhau.
-
-### 4. Nhận và map commit
-
-Khi GitHub gửi webhook push:
-
-- Backend đọc danh sách commit.
-- Chuẩn hóa repository URL để tìm project tương ứng.
-- Tìm user theo email author trong commit.
-- Lưu commit kèm `projectId`, `authorId`, message, URL, ngày commit và SHA.
-
-Nếu commit chưa map được với user, commit vẫn được lưu nhưng sẽ được xem là chưa map. Khi thêm user sau này, backend tự map lại các commit cũ có email trùng.
-
-### 5. Dashboard tiến độ sprint
-
-Dashboard bên phải hiển thị tiến độ theo luồng Agile/Scrum:
+Luồng sử dụng chính:
 
 ```txt
 Chọn dự án -> Chọn thành viên -> Chọn sprint -> Xem board task
 ```
 
-Lưu ý: frontend vẫn gọi là `sprint` để phù hợp ngôn ngữ Agile/Scrum, nhưng backend đang lấy dữ liệu từ **OpenProject Version** vì instance OpenProject hiện quản lý sprint bằng version.
+Lưu ý: frontend dùng thuật ngữ **Sprint** cho đúng Agile/Scrum, còn backend lấy dữ liệu từ **OpenProject Version**, vì OpenProject instance hiện quản lý sprint bằng Version.
 
-Board hiển thị các task của thành viên trong version/sprint đã chọn:
+Mỗi task hiển thị:
 
-- mã task
-- tên task
-- loại task
-- trạng thái OpenProject
-- phần trăm tiến độ
-- số commit liên kết
-- commit mới nhất
-- danh sách commit gần nhất theo task
+- Work Package ID
+- Tên task
+- Type
+- Status
+- Priority
+- Percentage done
+- Thời điểm cập nhật gần nhất
+- Cycle time, active time và blocked time
+- Link GitHub activity trong OpenProject nếu có
 
-Backend lọc task bằng:
+### Tổng quan tiến độ
 
-- project OpenProject
-- assignee OpenProject
-- version OpenProject
+Dashboard tính các chỉ số:
 
-Sau đó backend ghép thêm commit local dựa trên mã task xuất hiện trong commit message.
+- Tổng số task
+- Tiến độ trung bình
+- Số task hoàn thành
+- Số task đang làm
+- Active time trung bình
+- Blocked time tổng
 
-## Quy tắc đặt tên commit
+Progress được tính từ OpenProject:
 
-Để dashboard có thể theo dõi tiến độ task, commit message cần chứa mã work package của OpenProject.
+1. Ưu tiên `percentageDone` hoặc `derivedPercentageDone`.
+2. Nếu không có %, task có status đóng/hoàn thành được tính là 100%.
+3. Các task còn lại được tính là 0%.
 
-### Format chuẩn
+### Cách tính thời gian làm task
 
-```txt
-OP#<taskId> <state>: <nội dung commit>
-```
+Dashboard tính thời gian dựa trên lịch sử thay đổi status của Work Package trong OpenProject.
 
-Hoặc:
+Các chỉ số:
 
-```txt
-WP#<taskId> <state>: <nội dung commit>
-```
+- `Cycle time`: tính từ lần đầu task vào trạng thái đang làm/bị block đến lúc task đóng. Nếu task chưa đóng, tính đến thời điểm hiện tại.
+- `Active time`: tổng thời gian task nằm trong trạng thái đang làm, review, testing hoặc development.
+- `Blocked time`: tổng thời gian task nằm trong trạng thái blocked.
 
-Trong đó:
+Nhóm status mặc định:
 
-- `taskId`: ID của work package/task trên OpenProject.
-- `state`: trạng thái tiến độ mà commit muốn báo.
-- nội dung commit: mô tả ngắn gọn thay đổi đã làm.
+- Active: status có chứa `progress`, `review`, `test`, `qa`, `develop`, `implement`, `đang`.
+- Blocked: status có chứa `block`, `blocked`, `chặn`.
+- Done/terminal: status có chứa `closed`, `done`, `resolved`, `rejected`, `cancelled`, `canceled`, `đóng`, `hoàn thành`.
+- Các status khác như `Specified`, `In specification`, `New`, `Backlog` được xem là chưa bắt đầu làm.
 
-### Các state hỗ trợ
-
-| State | Ý nghĩa | Tiến độ suy luận nếu OpenProject chưa có % |
-| --- | --- | --- |
-| `start` | Bắt đầu làm task | 20% |
-| `progress` | Đang triển khai | 50% |
-| `review` | Đã làm xong, chờ review/test | 80% |
-| `fix` | Sửa lỗi hoặc chỉnh theo feedback | 50% |
-| `block` | Đang bị chặn | 35% |
-| `blocked` | Tương đương `block` | 35% |
-| `done` | Hoàn thành | 100% |
-
-Nếu OpenProject có `percentageDone`, dashboard ưu tiên dùng giá trị đó. Nếu không có, dashboard suy luận tiến độ theo commit state mới nhất.
-
-### Ví dụ commit đúng chuẩn
+Ví dụ:
 
 ```txt
-OP#12 start: setup GitHub webhook handler
-OP#12 progress: parse push payload and save commits
-OP#12 review: complete progress board UI
-OP#12 fix: handle empty OpenProject member list
-OP#12 done: finish sprint dashboard integration
-OP#15 block: waiting for OpenProject API permission
+Specified -> In progress -> Blocked -> In progress -> Closed
 ```
 
-### Quy tắc đề xuất cho team
+Dashboard sẽ tính:
 
-- Mỗi commit liên quan đến task phải có `OP#<taskId>` hoặc `WP#<taskId>`.
-- Một commit chỉ nên đại diện cho một ý nghĩa công việc rõ ràng.
-- Không dùng message chung chung như `update`, `fix bug`, `done`.
-- Nếu commit xử lý nhiều task, nên tách commit. Nếu bắt buộc, có thể ghi nhiều mã task, ví dụ:
+- `Cycle time`: từ lần đầu vào `In progress` đến lúc vào `Closed`.
+- `Active time`: tổng hai khoảng `In progress`.
+- `Blocked time`: khoảng nằm trong `Blocked`.
+
+### Rule giờ làm việc
+
+Dashboard có một trang cấu hình rule giờ làm việc:
 
 ```txt
-OP#12 OP#13 fix: align validation between project and member dropdown
+frontend/settings.html
 ```
 
-- Khi hoàn thành task, cần có ít nhất một commit `done` hoặc cập nhật `% done`/status trong OpenProject.
+Rule được lưu trong `localStorage` của trình duyệt và được gửi lên backend khi gọi `/api/progress`.
+
+Mặc định:
+
+```txt
+Giờ làm việc: 08:00 - 17:00
+Nghỉ trưa: 12:00 - 13:00
+Ngày làm việc: Thứ 2 - Thứ 6
+Timezone offset: UTC+7, tương đương 420 phút
+```
+
+Có thể cấu hình:
+
+- bật/tắt chế độ chỉ tính giờ làm việc
+- giờ bắt đầu/kết thúc
+- giờ nghỉ trưa
+- ngày làm việc trong tuần
+- timezone offset
+- danh sách ngày nghỉ theo format `YYYY-MM-DD`
+
+Nếu tắt chế độ chỉ tính giờ làm việc, dashboard sẽ tính theo calendar time 24/7.
+
+## Quy tắc đặt tên branch, pull request và commit
+
+Để OpenProject GitHub integration liên kết GitHub activity với Work Package, message hoặc PR description cần chứa mã Work Package.
+
+### Format đề xuất
+
+```txt
+OP#<workPackageId>: <nội dung>
+```
+
+Ví dụ:
+
+```txt
+OP#123: implement sprint progress dashboard
+OP#124: fix OpenProject member dropdown
+OP#125: update task progress layout
+```
+
+### Branch name
+
+Nên dùng Git snippets được OpenProject gợi ý trong tab GitHub của Work Package.
+
+Nếu đặt thủ công, dùng format:
+
+```txt
+op-<workPackageId>-short-description
+```
+
+Ví dụ:
+
+```txt
+op-123-progress-dashboard
+op-124-member-dropdown
+```
+
+### Pull request
+
+Pull request nên reference Work Package trong title hoặc description:
+
+```txt
+OP#123: implement sprint progress dashboard
+```
+
+Khi PR được liên kết đúng, OpenProject sẽ hiển thị PR và trạng thái PR trong Work Package.
+
+### Commit
+
+Commit nên ngắn gọn, rõ hành động và có mã Work Package:
+
+```txt
+OP#123: add progress summary cards
+OP#123: render assigned work packages
+OP#124: handle empty member list
+```
+
+Không nên dùng commit chung chung:
+
+```txt
+update
+fix bug
+done
+final
+```
 
 ## Kiến trúc thư mục
 
 ```txt
 git-tracking/
 ├── backend/
-│   ├── server.js        # Express API, webhook handler, progress API
+│   ├── server.js        # Express API cho dashboard
 │   ├── openproject.js   # OpenProject API client
-│   ├── github.js        # GitHub webhook API client
-│   ├── db.js            # File-based JSON database helper
 │   ├── env.js           # Minimal .env loader
-│   ├── db.json          # Local database
 │   └── package.json
 └── frontend/
     ├── index.html
@@ -181,20 +248,15 @@ Nội dung:
 ```env
 PORT=3000
 
-WEBHOOK_BASE_URL=
-GITHUB_TOKEN=
-
 OPENPROJECT_BASE_URL=
 OPENPROJECT_API_KEY=
 ```
 
 Ý nghĩa:
 
-- `PORT`: port backend, mặc định `3000`.
-- `WEBHOOK_BASE_URL`: public URL của backend, ví dụ URL ngrok hoặc domain deploy.
-- `GITHUB_TOKEN`: GitHub token có quyền tạo/xóa webhook repository.
+- `PORT`: port backend, mặc định là `3000`.
 - `OPENPROJECT_BASE_URL`: URL OpenProject, ví dụ `https://openproject.example.com`.
-- `OPENPROJECT_API_KEY`: API key lấy từ tài khoản OpenProject.
+- `OPENPROJECT_API_KEY`: API key của user có quyền đọc project, member, version và work package.
 
 ## Chạy dự án
 
@@ -231,61 +293,40 @@ const API_BASE = "http://localhost:3000";
 
 ## API chính
 
-### OpenProject adapter
-
 ```txt
 GET /api/openproject/projects
 GET /api/openproject/projects/:id/members
 GET /api/openproject/projects/:id/sprints
+GET /api/progress?openProjectId=&openProjectUserId=&sprintId=
 ```
 
-Ghi chú: endpoint `sprints` đang trả về OpenProject Versions để frontend vẫn dùng thuật ngữ Sprint.
+Ghi chú: endpoint `/sprints` trả về OpenProject Versions để frontend giữ đúng thuật ngữ Scrum.
 
-### Project
+## Những phần đã loại bỏ
 
-```txt
-GET    /api/projects
-POST   /api/projects
-DELETE /api/projects/:id
-```
+Các phần sau không còn cần thiết vì GitHub history được quản lý bởi OpenProject GitHub integration:
 
-### User
+- Backend GitHub webhook endpoint riêng
+- Tự động tạo/xóa webhook GitHub
+- Local `db.json`
+- Local project CRUD
+- Local user CRUD
+- Mapping nhiều Git email trong dashboard
+- Suy luận progress từ commit message custom
 
-```txt
-GET    /api/users
-POST   /api/users
-DELETE /api/users/:id
-```
+## Luồng vận hành đề xuất
 
-### Commit và progress
-
-```txt
-GET  /api/commits
-GET  /api/progress?openProjectId=&openProjectUserId=&sprintId=
-POST /webhooks/git
-```
-
-## Luồng sử dụng đề xuất
-
-1. PM tạo project, version/sprint, task và assignee trong OpenProject.
-2. Dev hoặc PM thêm project vào Git Tracking Dashboard bằng OpenProject project + GitHub repo URL.
-3. Hệ thống tự tạo webhook GitHub nếu đủ cấu hình.
-4. PM thêm user bằng danh sách member từ OpenProject và kiểm tra Git email.
-5. Dev commit theo quy tắc `OP#<taskId> <state>: <message>`.
-6. GitHub webhook gửi commit về backend.
-7. Dashboard hiển thị tiến độ task theo project, member và sprint.
+1. PM tạo Project, Version/Sprint và Work Package trong OpenProject.
+2. PM gán Assignee cho từng Work Package.
+3. Admin cấu hình GitHub integration trong OpenProject.
+4. Dev dùng cùng email cho GitHub, OpenProject và Git local config.
+5. Dev tạo branch/PR/commit có reference `OP#<workPackageId>`.
+6. OpenProject tự liên kết GitHub activity vào Work Package.
+7. Dashboard đọc OpenProject để hiển thị tiến độ theo Project, Member và Sprint.
 
 ## Giới hạn hiện tại
 
-- Database đang là file JSON, phù hợp demo hoặc nội bộ nhỏ, chưa phù hợp production lớn.
-- Progress từ commit là suy luận dựa trên convention, không thay thế hoàn toàn trạng thái chính thức trong OpenProject.
-- Dashboard phụ thuộc vào việc team đặt commit message đúng quy tắc.
-- Frontend hiện là HTML/CSS/JS thuần, chưa có authentication.
-
-## Định hướng nâng cấp
-
-- Thêm authentication cho dashboard.
-- Chuyển database từ JSON sang PostgreSQL.
-- Đồng bộ trạng thái task ngược lại OpenProject khi commit `done`.
-- Thêm báo cáo theo sprint/team/member.
-- Thêm kiểm tra commit convention trong CI hoặc Git hook.
+- Dashboard chỉ đọc dữ liệu, không cập nhật ngược về OpenProject.
+- Dashboard phụ thuộc vào dữ liệu Work Package và GitHub integration đã được cấu hình đúng trong OpenProject.
+- Nếu Work Package không có `percentageDone`, progress sẽ phụ thuộc vào status đóng/mở.
+- Chưa có authentication riêng cho dashboard.

@@ -1,7 +1,7 @@
 {
   "name": "git-commit-tracker",
   "version": "1.0.0",
-  "description": "Demo: thu thap commit tu nhieu du an Git qua webhook, xu ly 1 tai khoan tham gia nhieu du an",
+  "description": "Dashboard tien do dua tren OpenProject va OpenProject GitHub integration",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
