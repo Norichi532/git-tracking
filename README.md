@@ -330,3 +330,17 @@ Các phần sau không còn cần thiết vì GitHub history được quản lý
 - Dashboard phụ thuộc vào dữ liệu Work Package và GitHub integration đã được cấu hình đúng trong OpenProject.
 - Nếu Work Package không có `percentageDone`, progress sẽ phụ thuộc vào status đóng/mở.
 - Chưa có authentication riêng cho dashboard.
+- Database đang là file JSON, phù hợp demo hoặc nội bộ nhỏ, chưa phù hợp production lớn.
+- Progress từ commit là suy luận dựa trên convention, không thay thế hoàn toàn trạng thái chính thức trong OpenProject.
+- Dashboard phụ thuộc vào việc team đặt commit message đúng quy tắc.
+- Frontend hiện là HTML/CSS/JS thuần, chưa có authentication.
+
+## Định hướng nâng cấp
+
+- Thêm authentication cho dashboard.
+- Chuyển database từ JSON sang PostgreSQL.
+- Đồng bộ trạng thái task ngược lại OpenProject khi commit `done`.
+- Thêm báo cáo theo sprint/team/member.
+- Thêm kiểm tra commit convention trong CI hoặc Git hook.
+
+nice
