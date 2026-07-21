@@ -1,0 +1,63 @@
+name: Sync Commit to OpenProject
+
+on:
+  push:
+    branches: [ "main", "master" ]
+
+jobs:
+  notify-openproject:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send Commit Log to OpenProject
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const apiKey = "opapi-77f196055f948f4b8a2b6e1867ee7c6f1936859eaa778d3553bd0bd9610baed9";
+            const domain = "fptgreenwich.openproject.com";
+            
+            // Lấy thông tin commit
+            const commitMsg = context.payload.head_commit.message;
+            const commitUrl = context.payload.head_commit.url;
+            const author = context.payload.head_commit.author.name;
+
+            // Tìm số ID dạng #40
+            const match = commitMsg.match(/#(\d+)/);
+            if (!match) {
+              console.log("Khong tim thay ma #ID trong commit message. Bo qua!");
+              return;
+            }
+
+            const wpId = match[1];
+            console.log(`Tim thay Work Package ID: #${wpId}. Dang gui sang OpenProject...`);
+
+            // Tạo payload JSON chuẩn
+            const bodyData = {
+              comment: {
+                raw: `**[GitHub Commit]** **${author}** vừa push code:\n> ${commitMsg}\n\n[Xem chi tiết commit trên GitHub](${commitUrl})`
+              }
+            };
+
+            // Gửi request API bằng fetch
+            const authHeader = 'Basic ' + Buffer.from('apikey:' + apiKey).toString('base64');
+            
+            try {
+              const response = await fetch(`https://${domain}/api/v3/work_packages/${wpId}/activities`, {
+                method: 'POST',
+                headers: {
+                  'Authorization': authHeader,
+                  'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(bodyData)
+              });
+
+              if (response.ok) {
+                console.log("-> Thanh cong! Da cap nhat log vao OpenProject.");
+              } else {
+                const errText = await response.text();
+                console.error(`-> Loi tu OpenProject (${response.status}): ${errText}`);
+                core.setFailed(`Request failed: ${response.status}`);
+              }
+            } catch (err) {
+              console.error("-> Loi ket noi:", err);
+              core.setFailed(err.message);
+            }
