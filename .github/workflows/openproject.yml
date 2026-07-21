@@ -2,41 +2,62 @@ name: Sync Commit to OpenProject
 
 on:
   push:
-    branches: [ "main", "master" ] # Chạy khi push vào branch main hoặc master
+    branches: [ "main", "master" ]
 
 jobs:
   notify-openproject:
     runs-on: ubuntu-latest
     steps:
-      - name: Extract Work Package ID & Send to OpenProject
-        env:
-          API_KEY: "opapi-77f196055f948f4b8a2b6e1867ee7c6f1936859eaa778d3553bd0bd9610baed9"
-          DOMAIN: "fptgreenwich.openproject.com"
-          COMMIT_MSG: ${{ github.event.head_commit.message }}
-          COMMIT_URL: ${{ github.event.head_commit.url }}
-          AUTHOR: ${{ github.event.head_commit.author.name }}
-        run: |
-          # Tìm số ID đằng sau dấu # (Ví dụ: #40 -> lấy ra 40)
-          WP_ID=$(echo "$COMMIT_MSG" | grep -oP '(?<=#)\d+' | head -n 1)
-
-          if [ -n "$WP_ID" ]; then
-            echo "Tim thay Work Package ID: #$WP_ID. Dang gui log sang OpenProject..."
+      - name: Send Commit Log to OpenProject
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const apiKey = "opapi-77f196055f948f4b8a2b6e1867ee7c6f1936859eaa778d3553bd0bd9610baed9";
+            const domain = "fptgreenwich.openproject.com";
             
-            # Tạo nội dung comment
-            PAYLOAD=$(jq -n \
-              --arg msg "$COMMIT_MSG" \
-              --arg url "$COMMIT_URL" \
-              --arg author "$AUTHOR" \
-              '{comment: {raw: ("**[GitHub Commit]** " + $author + " vừa push code:\n> " + $msg + "\n\n[Xem chi tiết commit trên GitHub](" + $url + ")")}')
+            // Lấy thông tin commit
+            const commitMsg = context.payload.head_commit.message;
+            const commitUrl = context.payload.head_commit.url;
+            const author = context.payload.head_commit.author.name;
 
-            # Mã hóa API Key dạng Basic Auth (apikey:YOUR_KEY)
-            AUTH_HEADER=$(echo -n "apikey:$API_KEY" | base64 -w 0)
+            // Tìm số ID dạng #40
+            const match = commitMsg.match(/#(\d+)/);
+            if (!match) {
+              console.log("Khong tim thay ma #ID trong commit message. Bo qua!");
+              return;
+            }
 
-            # Gọi OpenProject REST API v3
-            curl -X POST "https://$DOMAIN/api/v3/work_packages/$WP_ID/activities" \
-              -H "Authorization: Basic $AUTH_HEADER" \
-              -H "Content-Type: application/json" \
-              -d "$PAYLOAD"
-          else
-            echo "Khong tim thay ma #ID trong commit message. Bo qua!"
-          fi
+            const wpId = match[1];
+            console.log(`Tim thay Work Package ID: #${wpId}. Dang gui sang OpenProject...`);
+
+            // Tạo payload JSON chuẩn
+            const bodyData = {
+              comment: {
+                raw: `**[GitHub Commit]** **${author}** vừa push code:\n> ${commitMsg}\n\n[Xem chi tiết commit trên GitHub](${commitUrl})`
+              }
+            };
+
+            // Gửi request API bằng fetch
+            const authHeader = 'Basic ' + Buffer.from('apikey:' + apiKey).toString('base64');
+            
+            try {
+              const response = await fetch(`https://${domain}/api/v3/work_packages/${wpId}/activities`, {
+                method: 'POST',
+                headers: {
+                  'Authorization': authHeader,
+                  'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(bodyData)
+              });
+
+              if (response.ok) {
+                console.log("-> Thanh cong! Da cap nhat log vao OpenProject.");
+              } else {
+                const errText = await response.text();
+                console.error(`-> Loi tu OpenProject (${response.status}): ${errText}`);
+                core.setFailed(`Request failed: ${response.status}`);
+              }
+            } catch (err) {
+              console.error("-> Loi ket noi:", err);
+              core.setFailed(err.message);
+            }
