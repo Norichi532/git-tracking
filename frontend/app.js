@@ -19,21 +19,22 @@ let openProjectProjects = [];
 let progressMembers = [];
 let progressSprints = [];
 let currentProgressTasks = [];
-let activeTaskFilter = "all";
-let taskViewMode = "detail";
+let activeTaskFilter = "off-track";
+let taskViewMode = "compact";
 let groupVisibleCounts = {};
+let expandedTaskIds = new Set();
 let aiForecastEnabled = localStorage.getItem(AI_FORECAST_KEY) === "true";
 
 const GROUP_PAGE_SIZE = 10;
 const TASK_FILTERS = [
-  { id: "all", label: "Tất cả" },
-  { id: "warnings", label: "Cảnh báo" },
-  { id: "at-risk", label: "Có rủi ro" },
   { id: "off-track", label: "Khó kịp" },
+  { id: "at-risk", label: "Có rủi ro" },
+  { id: "warnings", label: "Cảnh báo" },
   { id: "no-pr", label: "Chưa có PR" },
   { id: "no-log", label: "Chưa log work" },
   { id: "large", label: "Task lớn" },
   { id: "missing-sp", label: "Thiếu SP" },
+  { id: "all", label: "Tất cả" },
 ];
 const TASK_GROUPS = [
   { id: "attention", title: "Cần chú ý" },
@@ -180,12 +181,17 @@ function warningClass(level) {
 
 function renderEmpty(message) {
   $("#progress-summary").innerHTML = "";
+  $("#today-actions").innerHTML = "";
   $("#task-controls").innerHTML = "";
   $("#task-board").innerHTML = `<p class="empty-state">${message}</p>`;
 }
 
 function taskPoints(task) {
   return task.storyPoints === null || task.storyPoints === undefined ? 0 : Number(task.storyPoints) || 0;
+}
+
+function taskKey(task) {
+  return String(task.id || task.displayId);
 }
 
 function hasWarning(task) {
@@ -197,6 +203,90 @@ function warningScore(task) {
     (sum, warning) => sum + (warning.level === "warning" ? 2 : 1),
     0
   );
+}
+
+function warningSummary(task) {
+  const warnings = task.warnings || [];
+  const serious = warnings.filter((warning) => warning.level === "warning").length;
+  if (!warnings.length) return "";
+  return serious
+    ? `${warnings.length} cảnh báo · ${serious} nghiêm trọng`
+    : `${warnings.length} cảnh báo`;
+}
+
+function forecastActionLabel(task) {
+  const risk = task.forecast?.risk;
+  const codes = new Set((task.warnings || []).map((warning) => warning.code));
+  if (risk === "off_track") {
+    if (codes.has("NO_GITHUB_ACTIVITY") || codes.has("HIGH_POINT_NO_GITHUB_ACTIVITY")) {
+      return "Khó kịp · cần PR";
+    }
+    if (codes.has("NO_LOGGED_WORK")) return "Khó kịp · thiếu log work";
+    return "Khó kịp · cần xử lý";
+  }
+  if (risk === "at_risk") {
+    if (codes.has("NO_GITHUB_ACTIVITY") || codes.has("HIGH_POINT_NO_GITHUB_ACTIVITY")) {
+      return "Có rủi ro · chưa có PR";
+    }
+    if (codes.has("NO_LOGGED_WORK")) return "Có rủi ro · thiếu log work";
+    return "Có rủi ro · cần theo dõi";
+  }
+  if (risk === "unknown") return "Chưa đủ dữ liệu";
+  return "Kịp tiến độ";
+}
+
+function actionCount(filterId, tasks = currentProgressTasks) {
+  const previous = activeTaskFilter;
+  activeTaskFilter = filterId;
+  const count = tasks.filter(taskMatchesFilter).length;
+  activeTaskFilter = previous;
+  return count;
+}
+
+function renderTodayActions(tasks) {
+  const actions = [
+    { filter: "off-track", label: "Khó kịp", value: actionCount("off-track", tasks) },
+    { filter: "at-risk", label: "Có rủi ro", value: actionCount("at-risk", tasks) },
+    {
+      filter: "no-pr",
+      label: "Chưa có PR",
+      value: actionCount("no-pr", tasks),
+    },
+    {
+      filter: "no-log",
+      label: "Chưa log work",
+      value: actionCount("no-log", tasks),
+    },
+    { filter: "missing-sp", label: "Thiếu SP", value: actionCount("missing-sp", tasks) },
+  ];
+  const visibleActions = actions.filter((action) => action.value > 0);
+
+  if (!visibleActions.length) {
+    $("#today-actions").innerHTML = "";
+    return;
+  }
+
+  $("#today-actions").innerHTML = `
+    <div class="today-actions-header">
+      <h3>Cần xử lý hôm nay</h3>
+      <span>${visibleActions.reduce((sum, action) => sum + action.value, 0)} tín hiệu</span>
+    </div>
+    <div class="today-action-grid">
+      ${visibleActions
+        .map(
+          (action) => `
+            <button type="button" class="today-action" data-action-filter="${action.filter}">
+              <strong>${action.value}</strong>
+              <span>${action.label}</span>
+            </button>`
+        )
+        .join("")}
+    </div>`;
+}
+
+function chooseDefaultFilter(tasks) {
+  const actionFilters = ["off-track", "at-risk", "warnings", "no-pr", "no-log", "large", "missing-sp"];
+  activeTaskFilter = actionFilters.find((filter) => actionCount(filter, tasks) > 0) || "all";
 }
 
 function forecastRank(task) {
@@ -285,6 +375,8 @@ function renderTaskControls() {
 }
 
 function renderTaskCard(task) {
+  const key = taskKey(task);
+  const isExpanded = expandedTaskIds.has(key);
   const color = progressColor(task.progress);
   const metrics = task.timeMetrics || {};
   const githubLink = task.githubUrl
@@ -299,7 +391,8 @@ function renderTaskCard(task) {
   const warnings = task.warnings || [];
   const loggedMs = task.loggedWork?.totalMs || 0;
   const forecast = task.forecast || {};
-  const forecastLabel = forecast.label || "Chưa đủ dữ liệu";
+  const forecastLabel = forecastActionLabel(task);
+  const warningText = warningSummary(task);
   const warningList = warnings.length
     ? `
       <div class="task-warnings">
@@ -319,19 +412,8 @@ function renderTaskCard(task) {
     }</span>
     <span class="meta-chip ${statusClass(task.status)}">${task.status || "Chưa có trạng thái"}</span>
     <span class="meta-chip forecast-chip ${forecastClass(forecast.risk)}">${forecastLabel}</span>
-    ${warnings.length ? `<span class="meta-chip is-warning-count">${warnings.length} cảnh báo</span>` : ""}
+    ${warningText ? `<span class="meta-chip is-warning-count">${warningText}</span>` : ""}
   `;
-
-  if (taskViewMode === "compact") {
-    return `
-      <article class="task-card is-compact">
-        <div class="task-topline">
-          <a href="${task.url}" target="_blank" rel="noreferrer">#${task.displayId} ${task.subject}</a>
-          <strong style="color:${color}">${task.progress}%</strong>
-        </div>
-        <div class="task-meta">${compactMeta}</div>
-      </article>`;
-  }
 
   const lastGithubActivity = latestGithub
     ? `
@@ -342,11 +424,7 @@ function renderTaskCard(task) {
         </a>
         <span class="meta-chip is-github">${latestGithub.state || "updated"} · ${formatRelativeTime(latestGithub.updatedAt)}</span>
       </div>`
-    : `
-      <div class="github-activity is-empty">
-        <span class="github-label">Last GitHub</span>
-        <span>Chưa có pull request liên kết trong OpenProject</span>
-      </div>`;
+    : "";
   const forecastDetails = `
     <div class="forecast-panel ${forecastClass(forecast.risk)}">
       <div class="forecast-panel-title">
@@ -363,6 +441,48 @@ function renderTaskCard(task) {
       }
     </div>`;
 
+  const expandedDetails = `
+      <div class="task-detail-meta">
+        <span class="meta-chip ${priorityClass(task.priority)}">${task.priority || "Chưa có ưu tiên"}</span>
+        <span class="meta-chip is-date">Cập nhật: ${formatDate(task.updatedAt)}</span>
+        ${githubLink}
+      </div>
+      ${forecastDetails}
+      ${lastGithubActivity}
+      ${warningList}
+      <div class="task-time">
+        <span class="time-chip is-cycle"><strong>${formatDuration(metrics.cycleMs)}</strong> cycle time</span>
+        <span class="time-chip is-active"><strong>${formatDuration(metrics.activeMs)}</strong> active time</span>
+        <span class="time-chip is-develop"><strong>${formatDuration(metrics.developMs)}</strong> dev time</span>
+        <span class="time-chip is-logged"><strong>${formatDuration(loggedMs)}</strong> logged work</span>
+        <span class="time-chip is-unaccounted"><strong>${formatDuration(metrics.unaccountedMs)}</strong> chưa phân bổ</span>
+        <span class="time-chip is-blocked"><strong>${formatDuration(metrics.blockedMs)}</strong> blocked time</span>
+        <span class="time-chip is-range">${cycleRange}</span>
+      </div>
+    `;
+
+  if (taskViewMode === "compact") {
+    return `
+      <article class="task-card is-compact ${isExpanded ? "is-expanded" : ""}">
+        <div class="task-topline">
+          <a href="${task.url}" target="_blank" rel="noreferrer">#${task.displayId} ${task.subject}</a>
+          <div class="task-top-actions">
+            <strong style="color:${color}">${task.progress}%</strong>
+            <button type="button" class="task-expand-btn" data-expand-task="${key}" aria-expanded="${isExpanded}">
+              ${isExpanded ? "Thu gọn" : "Chi tiết"}
+            </button>
+          </div>
+        </div>
+        <div class="task-quick-flow">
+          <span><strong>${formatDuration(metrics.cycleMs)}</strong> cycle</span>
+          <span><strong>${formatDuration(metrics.activeMs)}</strong> active</span>
+          <span><strong>${formatDuration(metrics.blockedMs)}</strong> blocked</span>
+        </div>
+        <div class="task-meta">${compactMeta}</div>
+        ${isExpanded ? `<div class="compact-detail">${expandedDetails}</div>` : ""}
+      </article>`;
+  }
+
   return `
     <article class="task-card">
       <div class="task-topline">
@@ -374,20 +494,8 @@ function renderTaskCard(task) {
       </div>
       <div class="task-meta">
         ${compactMeta}
-        <span class="meta-chip ${priorityClass(task.priority)}">${task.priority || "Chưa có ưu tiên"}</span>
-        <span class="meta-chip is-date">Cập nhật: ${formatDate(task.updatedAt)}</span>
-        ${githubLink}
       </div>
-      ${forecastDetails}
-      ${lastGithubActivity}
-      ${warningList}
-      <div class="task-time">
-        <span class="time-chip is-develop"><strong>${formatDuration(metrics.developMs)}</strong> dev time</span>
-        <span class="time-chip is-logged"><strong>${formatDuration(loggedMs)}</strong> logged work</span>
-        <span class="time-chip is-unaccounted"><strong>${formatDuration(metrics.unaccountedMs)}</strong> chưa phân bổ</span>
-        <span class="time-chip is-blocked"><strong>${formatDuration(metrics.blockedMs)}</strong> blocked time</span>
-        <span class="time-chip is-range">${cycleRange}</span>
-      </div>
+      ${expandedDetails}
     </article>`;
 }
 
@@ -541,6 +649,9 @@ async function loadProgressBoard() {
 
     currentProgressTasks = result.tasks;
     groupVisibleCounts = {};
+    expandedTaskIds.clear();
+    chooseDefaultFilter(currentProgressTasks);
+    renderTodayActions(currentProgressTasks);
     renderTaskControls();
 
     if (currentProgressTasks.length === 0) {
@@ -569,6 +680,15 @@ $("#progress-project-select").addEventListener("change", async (event) => {
 $("#progress-member-select").addEventListener("change", loadProgressBoard);
 $("#progress-sprint-select").addEventListener("change", loadProgressBoard);
 $("#progress-refresh-btn").addEventListener("click", loadProgressBoard);
+$("#today-actions").addEventListener("click", (event) => {
+  const button = event.target.closest("[data-action-filter]");
+  if (!button) return;
+
+  activeTaskFilter = button.dataset.actionFilter;
+  groupVisibleCounts = {};
+  renderTaskControls();
+  renderTaskGroups();
+});
 $("#task-controls").addEventListener("click", (event) => {
   const aiButton = event.target.closest("[data-ai-toggle]");
   if (aiButton) {
@@ -595,6 +715,18 @@ $("#task-controls").addEventListener("click", (event) => {
   }
 });
 $("#task-board").addEventListener("click", (event) => {
+  const expandButton = event.target.closest("[data-expand-task]");
+  if (expandButton) {
+    const key = expandButton.dataset.expandTask;
+    if (expandedTaskIds.has(key)) {
+      expandedTaskIds.delete(key);
+    } else {
+      expandedTaskIds.add(key);
+    }
+    renderTaskGroups();
+    return;
+  }
+
   const button = event.target.closest("[data-show-more]");
   if (!button) return;
 
