@@ -119,6 +119,29 @@ app.get("/api/progress", async (req, res) => {
     tasks.length === 0
       ? 0
       : Math.round(tasks.reduce((sum, task) => sum + task.progress, 0) / tasks.length);
+  const pointTasks = tasks.filter(
+    (task) =>
+      task.storyPoints !== null &&
+      task.storyPoints !== undefined &&
+      Number.isFinite(Number(task.storyPoints))
+  );
+  const assignedPoints = pointTasks.reduce((sum, task) => sum + Number(task.storyPoints), 0);
+  const donePoints = pointTasks
+    .filter((task) => task.progress >= 100)
+    .reduce((sum, task) => sum + Number(task.storyPoints), 0);
+  const inProgressPoints = pointTasks
+    .filter((task) => task.progress > 0 && task.progress < 100)
+    .reduce((sum, task) => sum + Number(task.storyPoints), 0);
+  const remainingPoints = Math.max(0, assignedPoints - donePoints);
+  const weightedProgress =
+    assignedPoints === 0
+      ? averageProgress
+      : Math.round(
+          pointTasks.reduce(
+            (sum, task) => sum + Number(task.storyPoints) * (task.progress || 0),
+            0
+          ) / assignedPoints
+        );
   const totalBlockedMs = tasks.reduce(
     (sum, task) => sum + (task.timeMetrics?.blockedMs || 0),
     0
@@ -148,6 +171,12 @@ app.get("/api/progress", async (req, res) => {
       inProgressTasks: tasks.filter((task) => task.progress > 0 && task.progress < 100).length,
       notStartedTasks: tasks.filter((task) => task.progress === 0).length,
       averageProgress,
+      weightedProgress,
+      assignedPoints,
+      donePoints,
+      inProgressPoints,
+      remainingPoints,
+      missingStoryPointTasks: tasks.length - pointTasks.length,
       totalBlockedMs,
       totalLoggedMs,
       totalUnaccountedMs,

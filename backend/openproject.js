@@ -433,6 +433,12 @@ function parseIsoDurationToMs(value) {
   return (((days * 24 + hours) * 60 + minutes) * 60 + seconds) * 1000;
 }
 
+function normalizeStoryPoints(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const points = Number(value);
+  return Number.isFinite(points) && points >= 0 ? points : null;
+}
+
 function normalizeTimeEntry(item) {
   const spentMs =
     parseIsoDurationToMs(item.hours) ||
@@ -705,6 +711,9 @@ function calculateTimeMetrics({
 
 function taskWarnings({ task, timeMetrics, loggedWork, githubActivity }) {
   const warnings = [];
+  const storyPoints = Number(task.storyPoints);
+  const hasStoryPoints =
+    task.storyPoints !== null && task.storyPoints !== undefined && Number.isFinite(storyPoints);
   const devMs = timeMetrics.developMs || 0;
   const loggedMs = loggedWork.totalMs || 0;
   const blockedMs = timeMetrics.blockedMs || 0;
@@ -772,6 +781,48 @@ function taskWarnings({ task, timeMetrics, loggedWork, githubActivity }) {
     });
   }
 
+  if (!hasStoryPoints) {
+    warnings.push({
+      code: "NO_STORY_POINTS",
+      level: "info",
+      message: "Task chưa có story point, nên bổ sung để đánh giá tải sprint.",
+    });
+  }
+
+  if (hasStoryPoints && storyPoints >= 13) {
+    warnings.push({
+      code: "LARGE_TASK_SHOULD_SPLIT",
+      level: "warning",
+      message: "Task rất lớn theo story point, nên cân nhắc chia nhỏ.",
+    });
+  }
+
+  if (
+    hasStoryPoints &&
+    storyPoints >= 8 &&
+    ["notStarted", "ready"].includes(timeMetrics.currentStatusCategory)
+  ) {
+    warnings.push({
+      code: "HIGH_POINT_NOT_STARTED",
+      level: "warning",
+      message: "Task nhiều point nhưng chưa bắt đầu, có thể ảnh hưởng sprint.",
+    });
+  }
+
+  if (
+    hasStoryPoints &&
+    storyPoints >= 8 &&
+    !githubActivity.latest &&
+    categoryInList(timeMetrics.currentStatusCategory, "cycleStart") &&
+    !categoryInList(timeMetrics.currentStatusCategory, "terminal")
+  ) {
+    warnings.push({
+      code: "HIGH_POINT_NO_GITHUB_ACTIVITY",
+      level: "info",
+      message: "Task nhiều point đang chạy nhưng chưa có pull request liên kết.",
+    });
+  }
+
   return {
     warnings,
     unaccountedMs,
@@ -825,6 +876,7 @@ async function fetchOpenProjectSprintTasks({
       priority: wp._links?.priority?.title || "",
       assignee: wp._links?.assignee?.title || "",
       sprint: wp._links?.version?.title || "",
+      storyPoints: normalizeStoryPoints(wp.storyPoints),
       percentageDone: wp.percentageDone ?? wp.derivedPercentageDone ?? null,
       updatedAt: wp.updatedAt,
       createdAt: wp.createdAt,

@@ -1,6 +1,8 @@
 const $ = (sel) => document.querySelector(sel);
 
-const API_BASE = "http://localhost:3000";
+const API_BASE_QUERY = new URLSearchParams(window.location.search).get("api");
+if (API_BASE_QUERY) localStorage.setItem("gitTrackingApiBase", API_BASE_QUERY);
+const API_BASE = API_BASE_QUERY || localStorage.getItem("gitTrackingApiBase") || "http://localhost:3000";
 const BUSINESS_HOURS_KEY = "gitTrackingBusinessHours";
 const DEFAULT_BUSINESS_HOURS = {
   enabled: true,
@@ -15,6 +17,28 @@ const DEFAULT_BUSINESS_HOURS = {
 let openProjectProjects = [];
 let progressMembers = [];
 let progressSprints = [];
+let currentProgressTasks = [];
+let activeTaskFilter = "all";
+let taskViewMode = "detail";
+let groupVisibleCounts = {};
+
+const GROUP_PAGE_SIZE = 10;
+const TASK_FILTERS = [
+  { id: "all", label: "Tất cả" },
+  { id: "warnings", label: "Cảnh báo" },
+  { id: "no-pr", label: "Chưa có PR" },
+  { id: "no-log", label: "Chưa log work" },
+  { id: "large", label: "Task lớn" },
+  { id: "missing-sp", label: "Thiếu SP" },
+];
+const TASK_GROUPS = [
+  { id: "attention", title: "Cần chú ý" },
+  { id: "active", title: "Đang làm" },
+  { id: "reviewTesting", title: "Review/Test" },
+  { id: "notStarted", title: "Chưa bắt đầu" },
+  { id: "done", title: "Hoàn thành" },
+  { id: "other", title: "Khác" },
+];
 
 async function api(path) {
   const res = await fetch(API_BASE + path, {
@@ -59,12 +83,18 @@ function progressColor(progress) {
   return "var(--rust)";
 }
 
+function formatPoints(points) {
+  const value = Number(points || 0);
+  return Number.isInteger(value) ? `${value} pts` : `${value.toFixed(1)} pts`;
+}
+
 function statusClass(status) {
   const normalized = String(status || "").toLowerCase();
   if (
     normalized.includes("closed") ||
     normalized.includes("done") ||
     normalized.includes("resolved") ||
+    normalized.includes("prod") ||
     normalized.includes("đóng") ||
     normalized.includes("hoàn thành")
   ) {
@@ -146,7 +176,213 @@ function warningClass(level) {
 
 function renderEmpty(message) {
   $("#progress-summary").innerHTML = "";
+  $("#task-controls").innerHTML = "";
   $("#task-board").innerHTML = `<p class="empty-state">${message}</p>`;
+}
+
+function taskPoints(task) {
+  return task.storyPoints === null || task.storyPoints === undefined ? 0 : Number(task.storyPoints) || 0;
+}
+
+function hasWarning(task) {
+  return (task.warnings || []).length > 0;
+}
+
+function warningScore(task) {
+  return (task.warnings || []).reduce(
+    (sum, warning) => sum + (warning.level === "warning" ? 2 : 1),
+    0
+  );
+}
+
+function taskHasGithubActivity(task) {
+  return Boolean(task.githubActivity?.latest);
+}
+
+function taskMatchesFilter(task) {
+  if (activeTaskFilter === "warnings") return hasWarning(task);
+  if (activeTaskFilter === "no-pr") return !taskHasGithubActivity(task);
+  if (activeTaskFilter === "no-log") return task.timeMetrics?.developmentStartedAt && !task.loggedWork?.totalMs;
+  if (activeTaskFilter === "large") return taskPoints(task) >= 8;
+  if (activeTaskFilter === "missing-sp") {
+    return task.storyPoints === null || task.storyPoints === undefined;
+  }
+  return true;
+}
+
+function sortedTasks(tasks) {
+  return [...tasks].sort((a, b) => {
+    const warningDiff = warningScore(b) - warningScore(a);
+    if (warningDiff) return warningDiff;
+
+    const pointDiff = taskPoints(b) - taskPoints(a);
+    if (pointDiff) return pointDiff;
+
+    return new Date(a.updatedAt || 0) - new Date(b.updatedAt || 0);
+  });
+}
+
+function taskGroupId(task) {
+  if (hasWarning(task)) return "attention";
+
+  const category = task.timeMetrics?.currentStatusCategory;
+  if (["active", "blocked"].includes(category)) return "active";
+  if (["review", "testing", "developed"].includes(category)) return "reviewTesting";
+  if (["notStarted", "ready"].includes(category)) return "notStarted";
+  if (["done", "cancelled"].includes(category)) return "done";
+  return "other";
+}
+
+function groupTasks(tasks) {
+  const groups = Object.fromEntries(TASK_GROUPS.map((group) => [group.id, []]));
+  sortedTasks(tasks.filter(taskMatchesFilter)).forEach((task) => {
+    groups[taskGroupId(task)].push(task);
+  });
+  return groups;
+}
+
+function groupPoints(tasks) {
+  return tasks.reduce((sum, task) => sum + taskPoints(task), 0);
+}
+
+function renderTaskControls() {
+  $("#task-controls").innerHTML = `
+    <div class="task-filter-bar" aria-label="Bộ lọc task">
+      ${TASK_FILTERS.map(
+        (filter) =>
+          `<button type="button" class="filter-chip ${
+            activeTaskFilter === filter.id ? "is-active" : ""
+          }" data-filter="${filter.id}">${filter.label}</button>`
+      ).join("")}
+    </div>
+    <div class="view-toggle" aria-label="Kiểu hiển thị task">
+      <button type="button" class="${taskViewMode === "compact" ? "is-active" : ""}" data-view="compact">Compact</button>
+      <button type="button" class="${taskViewMode === "detail" ? "is-active" : ""}" data-view="detail">Detail</button>
+    </div>
+  `;
+}
+
+function renderTaskCard(task) {
+  const color = progressColor(task.progress);
+  const metrics = task.timeMetrics || {};
+  const githubLink = task.githubUrl
+    ? `<a class="meta-chip is-github" href="${task.githubUrl}" target="_blank" rel="noreferrer">GitHub activity</a>`
+    : `<span class="meta-chip is-muted">GitHub activity nằm trong OpenProject</span>`;
+  const cycleRange = metrics.cycleStartedAt
+    ? `${formatDate(metrics.cycleStartedAt)} -> ${
+        metrics.cycleEndedAt ? formatDate(metrics.cycleEndedAt) : "đang chạy"
+      }`
+    : "Chưa bắt đầu";
+  const latestGithub = task.githubActivity?.latest;
+  const warnings = task.warnings || [];
+  const loggedMs = task.loggedWork?.totalMs || 0;
+  const warningList = warnings.length
+    ? `
+      <div class="task-warnings">
+        ${warnings
+          .map(
+            (warning) =>
+              `<span class="warning-chip ${warningClass(warning.level)}">${warning.message}</span>`
+          )
+          .join("")}
+      </div>`
+    : "";
+
+  const compactMeta = `
+    <span class="meta-chip is-type">${task.type || "Task"}</span>
+    <span class="meta-chip is-points">${
+      task.storyPoints === null || task.storyPoints === undefined ? "Chưa có SP" : formatPoints(task.storyPoints)
+    }</span>
+    <span class="meta-chip ${statusClass(task.status)}">${task.status || "Chưa có trạng thái"}</span>
+    ${warnings.length ? `<span class="meta-chip is-warning-count">${warnings.length} cảnh báo</span>` : ""}
+  `;
+
+  if (taskViewMode === "compact") {
+    return `
+      <article class="task-card is-compact">
+        <div class="task-topline">
+          <a href="${task.url}" target="_blank" rel="noreferrer">#${task.displayId} ${task.subject}</a>
+          <strong style="color:${color}">${task.progress}%</strong>
+        </div>
+        <div class="task-meta">${compactMeta}</div>
+      </article>`;
+  }
+
+  const lastGithubActivity = latestGithub
+    ? `
+      <div class="github-activity">
+        <span class="github-label">Last GitHub</span>
+        <a href="${latestGithub.url || task.githubUrl}" target="_blank" rel="noreferrer">
+          ${latestGithub.number ? `PR #${latestGithub.number}` : "Pull request"}: ${latestGithub.title}
+        </a>
+        <span class="meta-chip is-github">${latestGithub.state || "updated"} · ${formatRelativeTime(latestGithub.updatedAt)}</span>
+      </div>`
+    : `
+      <div class="github-activity is-empty">
+        <span class="github-label">Last GitHub</span>
+        <span>Chưa có pull request liên kết trong OpenProject</span>
+      </div>`;
+
+  return `
+    <article class="task-card">
+      <div class="task-topline">
+        <a href="${task.url}" target="_blank" rel="noreferrer">#${task.displayId} ${task.subject}</a>
+        <strong style="color:${color}">${task.progress}%</strong>
+      </div>
+      <div class="progress-track">
+        <div class="progress-bar" style="width:${task.progress}%;background:${color}"></div>
+      </div>
+      <div class="task-meta">
+        ${compactMeta}
+        <span class="meta-chip ${priorityClass(task.priority)}">${task.priority || "Chưa có ưu tiên"}</span>
+        <span class="meta-chip is-date">Cập nhật: ${formatDate(task.updatedAt)}</span>
+        ${githubLink}
+      </div>
+      ${lastGithubActivity}
+      ${warningList}
+      <div class="task-time">
+        <span class="time-chip is-develop"><strong>${formatDuration(metrics.developMs)}</strong> dev time</span>
+        <span class="time-chip is-logged"><strong>${formatDuration(loggedMs)}</strong> logged work</span>
+        <span class="time-chip is-unaccounted"><strong>${formatDuration(metrics.unaccountedMs)}</strong> chưa phân bổ</span>
+        <span class="time-chip is-blocked"><strong>${formatDuration(metrics.blockedMs)}</strong> blocked time</span>
+        <span class="time-chip is-range">${cycleRange}</span>
+      </div>
+    </article>`;
+}
+
+function renderTaskGroups(tasks = currentProgressTasks) {
+  const groups = groupTasks(tasks);
+  const visibleGroupIds = TASK_GROUPS.filter((group) => groups[group.id].length > 0);
+
+  if (!visibleGroupIds.length) {
+    $("#task-board").innerHTML = `<p class="empty-state">Không có task phù hợp với bộ lọc hiện tại.</p>`;
+    return;
+  }
+
+  $("#task-board").innerHTML = visibleGroupIds
+    .map((group) => {
+      const groupTasks = groups[group.id];
+      const visibleCount = groupVisibleCounts[group.id] || GROUP_PAGE_SIZE;
+      const visibleTasks = groupTasks.slice(0, visibleCount);
+      const remaining = groupTasks.length - visibleTasks.length;
+
+      return `
+        <section class="task-group">
+          <div class="task-group-header">
+            <h3>${group.title}</h3>
+            <span>${groupTasks.length} task · ${formatPoints(groupPoints(groupTasks))}</span>
+          </div>
+          <div class="task-group-list">
+            ${visibleTasks.map(renderTaskCard).join("")}
+          </div>
+          ${
+            remaining > 0
+              ? `<button type="button" class="show-more-btn" data-show-more="${group.id}">Hiển thị thêm ${Math.min(GROUP_PAGE_SIZE, remaining)} task</button>`
+              : ""
+          }
+        </section>`;
+    })
+    .join("");
 }
 
 async function loadProjects() {
@@ -246,6 +482,10 @@ async function loadProgressBoard() {
     $("#progress-summary").innerHTML = `
       <div><strong>${result.summary.totalTasks}</strong><span>Task</span></div>
       <div><strong>${result.summary.averageProgress}%</strong><span>Trung bình</span></div>
+      <div><strong>${result.summary.weightedProgress}%</strong><span>Theo story point</span></div>
+      <div><strong>${formatPoints(result.summary.assignedPoints)}</strong><span>Assigned</span></div>
+      <div><strong>${formatPoints(result.summary.donePoints)}</strong><span>Done points</span></div>
+      <div><strong>${formatPoints(result.summary.remainingPoints)}</strong><span>Remaining</span></div>
       <div><strong>${result.summary.doneTasks}</strong><span>Hoàn thành</span></div>
       <div><strong>${result.summary.inProgressTasks}</strong><span>Đang làm</span></div>
       <div><strong>${formatDuration(result.summary.averageDevelopMs)}</strong><span>Dev TB (${result.summary.developedTasks})</span></div>
@@ -255,81 +495,17 @@ async function loadProgressBoard() {
       <div><strong>${result.summary.warningCount}</strong><span>Cảnh báo</span></div>
     `;
 
-    if (result.tasks.length === 0) {
+    currentProgressTasks = result.tasks;
+    groupVisibleCounts = {};
+    renderTaskControls();
+
+    if (currentProgressTasks.length === 0) {
       $("#task-board").innerHTML =
         `<p class="empty-state">Không có task nào được giao cho thành viên này trong sprint đã chọn.</p>`;
       return;
     }
 
-    $("#task-board").innerHTML = result.tasks
-      .map((task) => {
-        const color = progressColor(task.progress);
-        const metrics = task.timeMetrics || {};
-        const githubLink = task.githubUrl
-          ? `<a class="meta-chip is-github" href="${task.githubUrl}" target="_blank" rel="noreferrer">GitHub activity</a>`
-          : `<span class="meta-chip is-muted">GitHub activity nằm trong OpenProject</span>`;
-        const cycleRange = metrics.cycleStartedAt
-          ? `${formatDate(metrics.cycleStartedAt)} -> ${
-              metrics.cycleEndedAt ? formatDate(metrics.cycleEndedAt) : "đang chạy"
-            }`
-          : "Chưa bắt đầu";
-        const latestGithub = task.githubActivity?.latest;
-        const lastGithubActivity = latestGithub
-          ? `
-            <div class="github-activity">
-              <span class="github-label">Last GitHub</span>
-              <a href="${latestGithub.url || task.githubUrl}" target="_blank" rel="noreferrer">
-                ${latestGithub.number ? `PR #${latestGithub.number}` : "Pull request"}: ${latestGithub.title}
-              </a>
-              <span class="meta-chip is-github">${latestGithub.state || "updated"} · ${formatRelativeTime(latestGithub.updatedAt)}</span>
-            </div>`
-          : `
-            <div class="github-activity is-empty">
-              <span class="github-label">Last GitHub</span>
-              <span>Chưa có pull request liên kết trong OpenProject</span>
-            </div>`;
-        const warnings = task.warnings || [];
-        const warningList = warnings.length
-          ? `
-            <div class="task-warnings">
-              ${warnings
-                .map(
-                  (warning) =>
-                    `<span class="warning-chip ${warningClass(warning.level)}">${warning.message}</span>`
-                )
-                .join("")}
-            </div>`
-          : "";
-        const loggedMs = task.loggedWork?.totalMs || 0;
-
-        return `
-          <article class="task-card">
-            <div class="task-topline">
-              <a href="${task.url}" target="_blank" rel="noreferrer">#${task.displayId} ${task.subject}</a>
-              <strong style="color:${color}">${task.progress}%</strong>
-            </div>
-            <div class="progress-track">
-              <div class="progress-bar" style="width:${task.progress}%;background:${color}"></div>
-            </div>
-            <div class="task-meta">
-              <span class="meta-chip is-type">${task.type || "Task"}</span>
-              <span class="meta-chip ${statusClass(task.status)}">${task.status || "Chưa có trạng thái"}</span>
-              <span class="meta-chip ${priorityClass(task.priority)}">${task.priority || "Chưa có ưu tiên"}</span>
-              <span class="meta-chip is-date">Cập nhật: ${formatDate(task.updatedAt)}</span>
-              ${githubLink}
-            </div>
-            ${lastGithubActivity}
-            ${warningList}
-            <div class="task-time">
-              <span class="time-chip is-develop"><strong>${formatDuration(metrics.developMs)}</strong> dev time</span>
-              <span class="time-chip is-logged"><strong>${formatDuration(loggedMs)}</strong> logged work</span>
-              <span class="time-chip is-unaccounted"><strong>${formatDuration(metrics.unaccountedMs)}</strong> chưa phân bổ</span>
-              <span class="time-chip is-blocked"><strong>${formatDuration(metrics.blockedMs)}</strong> blocked time</span>
-              <span class="time-chip is-range">${cycleRange}</span>
-            </div>
-          </article>`;
-      })
-      .join("");
+    renderTaskGroups();
   } catch (err) {
     statusEl.textContent = err.message;
     statusEl.className = "status-line error";
@@ -349,6 +525,31 @@ $("#progress-project-select").addEventListener("change", async (event) => {
 $("#progress-member-select").addEventListener("change", loadProgressBoard);
 $("#progress-sprint-select").addEventListener("change", loadProgressBoard);
 $("#progress-refresh-btn").addEventListener("click", loadProgressBoard);
+$("#task-controls").addEventListener("click", (event) => {
+  const filterButton = event.target.closest("[data-filter]");
+  if (filterButton) {
+    activeTaskFilter = filterButton.dataset.filter;
+    groupVisibleCounts = {};
+    renderTaskControls();
+    renderTaskGroups();
+    return;
+  }
+
+  const viewButton = event.target.closest("[data-view]");
+  if (viewButton) {
+    taskViewMode = viewButton.dataset.view;
+    renderTaskControls();
+    renderTaskGroups();
+  }
+});
+$("#task-board").addEventListener("click", (event) => {
+  const button = event.target.closest("[data-show-more]");
+  if (!button) return;
+
+  const groupId = button.dataset.showMore;
+  groupVisibleCounts[groupId] = (groupVisibleCounts[groupId] || GROUP_PAGE_SIZE) + GROUP_PAGE_SIZE;
+  renderTaskGroups();
+});
 
 (async function init() {
   await loadProjects();

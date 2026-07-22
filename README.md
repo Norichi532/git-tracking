@@ -345,6 +345,16 @@ Tài liệu BA cho rule này nằm ở:
 docs/status_mapping.md
 ```
 
+## Story points
+
+Dashboard dùng `storyPoints` từ OpenProject Work Package để tính tiến độ có trọng số, tải sprint và cảnh báo task lớn.
+
+Tài liệu BA cho rule này nằm ở:
+
+```txt
+docs/story_points.md
+```
+
 ## Những phần đã loại bỏ
 
 Các phần sau không còn cần thiết vì GitHub history được quản lý bởi OpenProject GitHub integration:

@@ -195,21 +195,92 @@ button:hover { opacity: 0.88; }
   color: var(--muted);
   font-size: 12px;
 }
+.task-controls {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin: 14px 0;
+  flex-wrap: wrap;
+}
+.task-filter-bar,
+.view-toggle {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.filter-chip,
+.view-toggle button,
+.show-more-btn {
+  background: var(--panel);
+  color: var(--ink);
+  border-color: var(--line);
+  font-size: 12px;
+  padding: 7px 10px;
+}
+.filter-chip.is-active,
+.view-toggle button.is-active {
+  background: var(--ink);
+  color: var(--paper);
+  border-color: var(--ink);
+}
 .task-board {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 14px;
 }
 .empty-state {
   color: var(--muted);
   font-size: 14px;
   padding: 24px 4px;
 }
+.task-group {
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+}
+.task-group:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+.task-group-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.task-group-header h3 {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 13px;
+}
+.task-group-header span {
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.task-group-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
 .task-card {
   border: 1px solid var(--line);
   border-radius: 7px;
   padding: 14px;
   background: var(--panel);
+}
+.task-card.is-compact {
+  padding: 10px 12px;
+}
+.task-card.is-compact .task-topline {
+  align-items: center;
+}
+.task-card.is-compact .task-meta {
+  margin-top: 8px;
+}
+.show-more-btn {
+  margin-top: 10px;
 }
 .task-topline {
   display: flex;
@@ -253,6 +324,16 @@ button:hover { opacity: 0.88; }
 .meta-chip.is-type {
   background: var(--violet-soft);
   color: var(--violet);
+}
+.meta-chip.is-points {
+  background: #ECFDF5;
+  color: #047857;
+  font-family: var(--mono);
+  font-weight: 700;
+}
+.meta-chip.is-warning-count {
+  background: var(--rust-soft);
+  color: var(--rust);
 }
 .meta-chip.is-date,
 .meta-chip.is-muted {
