@@ -4,6 +4,7 @@ const API_BASE_QUERY = new URLSearchParams(window.location.search).get("api");
 if (API_BASE_QUERY) localStorage.setItem("gitTrackingApiBase", API_BASE_QUERY);
 const API_BASE = API_BASE_QUERY || localStorage.getItem("gitTrackingApiBase") || "http://localhost:3000";
 const BUSINESS_HOURS_KEY = "gitTrackingBusinessHours";
+const AI_FORECAST_KEY = "gitTrackingAiForecastEnabled";
 const DEFAULT_BUSINESS_HOURS = {
   enabled: true,
   timezoneOffsetMinutes: 420,
@@ -21,11 +22,14 @@ let currentProgressTasks = [];
 let activeTaskFilter = "all";
 let taskViewMode = "detail";
 let groupVisibleCounts = {};
+let aiForecastEnabled = localStorage.getItem(AI_FORECAST_KEY) === "true";
 
 const GROUP_PAGE_SIZE = 10;
 const TASK_FILTERS = [
   { id: "all", label: "Tất cả" },
   { id: "warnings", label: "Cảnh báo" },
+  { id: "at-risk", label: "Có rủi ro" },
+  { id: "off-track", label: "Khó kịp" },
   { id: "no-pr", label: "Chưa có PR" },
   { id: "no-log", label: "Chưa log work" },
   { id: "large", label: "Task lớn" },
@@ -195,12 +199,25 @@ function warningScore(task) {
   );
 }
 
+function forecastRank(task) {
+  return { off_track: 4, at_risk: 3, unknown: 1, on_track: 0 }[task.forecast?.risk] || 0;
+}
+
+function forecastClass(risk) {
+  if (risk === "off_track") return "is-off-track";
+  if (risk === "at_risk") return "is-at-risk";
+  if (risk === "on_track") return "is-on-track";
+  return "is-unknown";
+}
+
 function taskHasGithubActivity(task) {
   return Boolean(task.githubActivity?.latest);
 }
 
 function taskMatchesFilter(task) {
   if (activeTaskFilter === "warnings") return hasWarning(task);
+  if (activeTaskFilter === "at-risk") return ["at_risk", "off_track"].includes(task.forecast?.risk);
+  if (activeTaskFilter === "off-track") return task.forecast?.risk === "off_track";
   if (activeTaskFilter === "no-pr") return !taskHasGithubActivity(task);
   if (activeTaskFilter === "no-log") return task.timeMetrics?.developmentStartedAt && !task.loggedWork?.totalMs;
   if (activeTaskFilter === "large") return taskPoints(task) >= 8;
@@ -215,6 +232,9 @@ function sortedTasks(tasks) {
     const warningDiff = warningScore(b) - warningScore(a);
     if (warningDiff) return warningDiff;
 
+    const forecastDiff = forecastRank(b) - forecastRank(a);
+    if (forecastDiff) return forecastDiff;
+
     const pointDiff = taskPoints(b) - taskPoints(a);
     if (pointDiff) return pointDiff;
 
@@ -223,6 +243,7 @@ function sortedTasks(tasks) {
 }
 
 function taskGroupId(task) {
+  if (["at_risk", "off_track"].includes(task.forecast?.risk)) return "attention";
   if (hasWarning(task)) return "attention";
 
   const category = task.timeMetrics?.currentStatusCategory;
@@ -256,6 +277,7 @@ function renderTaskControls() {
       ).join("")}
     </div>
     <div class="view-toggle" aria-label="Kiểu hiển thị task">
+      <button type="button" class="${aiForecastEnabled ? "is-active" : ""}" data-ai-toggle="true">AI forecast</button>
       <button type="button" class="${taskViewMode === "compact" ? "is-active" : ""}" data-view="compact">Compact</button>
       <button type="button" class="${taskViewMode === "detail" ? "is-active" : ""}" data-view="detail">Detail</button>
     </div>
@@ -276,6 +298,8 @@ function renderTaskCard(task) {
   const latestGithub = task.githubActivity?.latest;
   const warnings = task.warnings || [];
   const loggedMs = task.loggedWork?.totalMs || 0;
+  const forecast = task.forecast || {};
+  const forecastLabel = forecast.label || "Chưa đủ dữ liệu";
   const warningList = warnings.length
     ? `
       <div class="task-warnings">
@@ -294,6 +318,7 @@ function renderTaskCard(task) {
       task.storyPoints === null || task.storyPoints === undefined ? "Chưa có SP" : formatPoints(task.storyPoints)
     }</span>
     <span class="meta-chip ${statusClass(task.status)}">${task.status || "Chưa có trạng thái"}</span>
+    <span class="meta-chip forecast-chip ${forecastClass(forecast.risk)}">${forecastLabel}</span>
     ${warnings.length ? `<span class="meta-chip is-warning-count">${warnings.length} cảnh báo</span>` : ""}
   `;
 
@@ -322,6 +347,21 @@ function renderTaskCard(task) {
         <span class="github-label">Last GitHub</span>
         <span>Chưa có pull request liên kết trong OpenProject</span>
       </div>`;
+  const forecastDetails = `
+    <div class="forecast-panel ${forecastClass(forecast.risk)}">
+      <div class="forecast-panel-title">
+        <strong>${forecastLabel}</strong>
+        <span>${Math.round((forecast.confidence || 0) * 100)}% · ${forecast.source || "rules"}</span>
+      </div>
+      <p>${forecast.aiReason || (forecast.reasons || [])[0] || "Chưa có nhận định."}</p>
+      ${
+        (forecast.suggestedActions || []).length
+          ? `<div class="forecast-actions">${forecast.suggestedActions
+              .map((action) => `<span>${action}</span>`)
+              .join("")}</div>`
+          : ""
+      }
+    </div>`;
 
   return `
     <article class="task-card">
@@ -338,6 +378,7 @@ function renderTaskCard(task) {
         <span class="meta-chip is-date">Cập nhật: ${formatDate(task.updatedAt)}</span>
         ${githubLink}
       </div>
+      ${forecastDetails}
       ${lastGithubActivity}
       ${warningList}
       <div class="task-time">
@@ -474,6 +515,7 @@ async function loadProgressBoard() {
       openProjectId: projectId,
       openProjectUserId: memberId,
       sprintId,
+      ai: aiForecastEnabled ? "true" : "false",
       businessHours: JSON.stringify(businessHoursRule()),
     });
     const result = await api(`/api/progress?${params.toString()}`);
@@ -493,6 +535,8 @@ async function loadProgressBoard() {
       <div><strong>${formatDuration(result.summary.totalUnaccountedMs)}</strong><span>Chưa phân bổ</span></div>
       <div><strong>${formatDuration(result.summary.totalBlockedMs)}</strong><span>Blocked</span></div>
       <div><strong>${result.summary.warningCount}</strong><span>Cảnh báo</span></div>
+      <div><strong>${result.summary.forecastCounts?.at_risk || 0}</strong><span>Có rủi ro</span></div>
+      <div><strong>${result.summary.forecastCounts?.off_track || 0}</strong><span>Khó kịp</span></div>
     `;
 
     currentProgressTasks = result.tasks;
@@ -526,6 +570,14 @@ $("#progress-member-select").addEventListener("change", loadProgressBoard);
 $("#progress-sprint-select").addEventListener("change", loadProgressBoard);
 $("#progress-refresh-btn").addEventListener("click", loadProgressBoard);
 $("#task-controls").addEventListener("click", (event) => {
+  const aiButton = event.target.closest("[data-ai-toggle]");
+  if (aiButton) {
+    aiForecastEnabled = !aiForecastEnabled;
+    localStorage.setItem(AI_FORECAST_KEY, String(aiForecastEnabled));
+    loadProgressBoard();
+    return;
+  }
+
   const filterButton = event.target.closest("[data-filter]");
   if (filterButton) {
     activeTaskFilter = filterButton.dataset.filter;

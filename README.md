@@ -355,6 +355,24 @@ Tài liệu BA cho rule này nằm ở:
 docs/story_points.md
 ```
 
+## Dự báo tiến độ task
+
+Dashboard có rule-based forecast cho từng task và có thể bật AI explanation/action bằng Gemini hoặc OpenAI.
+
+```env
+AI_FORECAST_PROVIDER=gemini
+GEMINI_API_KEY=
+GEMINI_MODEL=gemini-3.6-flash
+AI_FORECAST_TASK_LIMIT=25
+OPENPROJECT_CACHE_TTL_MS=180000
+```
+
+Tài liệu BA cho rule này nằm ở:
+
+```txt
+docs/forecasting.md
+```
+
 ## Những phần đã loại bỏ
 
 Các phần sau không còn cần thiết vì GitHub history được quản lý bởi OpenProject GitHub integration:

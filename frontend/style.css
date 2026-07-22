@@ -335,6 +335,22 @@ button:hover { opacity: 0.88; }
   background: var(--rust-soft);
   color: var(--rust);
 }
+.forecast-chip.is-on-track {
+  background: var(--green-soft);
+  color: var(--green);
+}
+.forecast-chip.is-at-risk {
+  background: var(--amber-soft);
+  color: var(--amber);
+}
+.forecast-chip.is-off-track {
+  background: var(--rust-soft);
+  color: var(--rust);
+}
+.forecast-chip.is-unknown {
+  background: var(--gray-soft);
+  color: var(--muted);
+}
 .meta-chip.is-date,
 .meta-chip.is-muted {
   background: var(--gray-soft);
@@ -399,6 +415,57 @@ button:hover { opacity: 0.88; }
   text-decoration: none;
 }
 .github-activity a:hover { text-decoration: underline; }
+.forecast-panel {
+  margin-top: 10px;
+  padding: 10px;
+  border-radius: 7px;
+  border: 1px solid var(--line);
+  background: var(--paper);
+}
+.forecast-panel.is-on-track {
+  border-color: #BBF7D0;
+  background: var(--green-soft);
+}
+.forecast-panel.is-at-risk {
+  border-color: #FDE68A;
+  background: var(--amber-soft);
+}
+.forecast-panel.is-off-track {
+  border-color: #FDBA74;
+  background: var(--rust-soft);
+}
+.forecast-panel-title {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+  font-size: 12px;
+}
+.forecast-panel-title span {
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.forecast-panel p {
+  margin: 8px 0 0;
+  color: var(--ink);
+  font-size: 12px;
+  line-height: 1.45;
+}
+.forecast-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+.forecast-actions span {
+  border: 1px solid rgba(28, 31, 38, 0.12);
+  border-radius: 6px;
+  padding: 5px 7px;
+  background: rgba(255, 255, 255, 0.58);
+  font-size: 12px;
+}
 .task-warnings {
   display: flex;
   flex-wrap: wrap;

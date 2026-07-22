@@ -2,6 +2,35 @@
 // Fetch project choices from OpenProject API v3.
 
 const statusMapping = require("./status-mapping.json");
+const OPENPROJECT_CACHE_TTL_MS = Number(process.env.OPENPROJECT_CACHE_TTL_MS || 3 * 60 * 1000);
+const openProjectCache = new Map();
+
+function cacheKey(parts) {
+  return parts.join("::");
+}
+
+function cloneData(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
+function getCache(key) {
+  if (!OPENPROJECT_CACHE_TTL_MS) return null;
+  const hit = openProjectCache.get(key);
+  if (!hit) return null;
+  if (Date.now() > hit.expiresAt) {
+    openProjectCache.delete(key);
+    return null;
+  }
+  return cloneData(hit.value);
+}
+
+function setCache(key, value) {
+  if (!OPENPROJECT_CACHE_TTL_MS) return;
+  openProjectCache.set(key, {
+    value: cloneData(value),
+    expiresAt: Date.now() + OPENPROJECT_CACHE_TTL_MS,
+  });
+}
 
 function requireOpenProjectConfig() {
   const baseUrl = (process.env.OPENPROJECT_BASE_URL || "").replace(/\/+$/, "");
@@ -27,6 +56,10 @@ function absoluteOpenProjectUrl(baseUrl, href) {
 }
 
 async function fetchOpenProjectJson({ baseUrl, apiKey, href }) {
+  const key = cacheKey(["json", baseUrl, href]);
+  const cached = getCache(key);
+  if (cached) return cached;
+
   const res = await fetch(absoluteOpenProjectUrl(baseUrl, href), {
     headers: {
       Authorization: openProjectAuthHeader(apiKey),
@@ -44,10 +77,16 @@ async function fetchOpenProjectJson({ baseUrl, apiKey, href }) {
     };
   }
 
-  return { ok: true, data };
+  const result = { ok: true, data };
+  setCache(key, result);
+  return result;
 }
 
 async function fetchOpenProjectCollection({ baseUrl, apiKey, href }) {
+  const key = cacheKey(["collection", baseUrl, href]);
+  const cached = getCache(key);
+  if (cached) return cached;
+
   const pageSize = 100;
   let offset = 1;
   let total = null;
@@ -73,7 +112,9 @@ async function fetchOpenProjectCollection({ baseUrl, apiKey, href }) {
     offset++;
   }
 
-  return { ok: true, elements };
+  const result = { ok: true, elements };
+  setCache(key, result);
+  return result;
 }
 
 async function fetchOpenProjectProjects() {

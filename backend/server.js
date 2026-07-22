@@ -9,6 +9,7 @@ const {
   fetchOpenProjectProjectSprints,
   fetchOpenProjectSprintTasks,
 } = require("./openproject");
+const { buildTaskForecasts } = require("./forecast");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -109,10 +110,20 @@ app.get("/api/progress", async (req, res) => {
     return res.status(tasksResult.status || 503).json({ error: tasksResult.error });
   }
 
-  const tasks = tasksResult.tasks.map((task) => ({
+  let tasks = tasksResult.tasks.map((task) => ({
     ...task,
     progress: progressFromTask(task),
   }));
+
+  const sprintsResult = await fetchOpenProjectProjectSprints(openProjectId).catch((err) => ({
+    ok: false,
+    error: err.message,
+  }));
+  const sprint = sprintsResult.ok
+    ? (sprintsResult.sprints || []).find((item) => String(item.id) === String(sprintId)) || null
+    : null;
+  const aiEnabled = String(req.query.ai || "false").toLowerCase() === "true";
+  tasks = await buildTaskForecasts({ tasks, sprint, aiEnabled });
 
   const doneCount = tasks.filter((task) => task.progress >= 100).length;
   const averageProgress =
@@ -163,6 +174,14 @@ app.get("/api/progress", async (req, res) => {
             developedTasks.length
         );
   const warningCount = tasks.reduce((sum, task) => sum + (task.warnings?.length || 0), 0);
+  const forecastCounts = tasks.reduce(
+    (counts, task) => {
+      const risk = task.forecast?.risk || "unknown";
+      counts[risk] = (counts[risk] || 0) + 1;
+      return counts;
+    },
+    { on_track: 0, at_risk: 0, off_track: 0, unknown: 0 }
+  );
 
   return res.json({
     summary: {
@@ -183,6 +202,8 @@ app.get("/api/progress", async (req, res) => {
       developedTasks: developedTasks.length,
       averageDevelopMs,
       warningCount,
+      forecastCounts,
+      aiForecastEnabled: aiEnabled,
     },
     tasks,
   });
