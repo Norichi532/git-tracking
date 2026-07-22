@@ -199,6 +199,12 @@ async function loadSprints(projectId) {
   }
 
   progressSprints = await api(`/api/openproject/projects/${projectId}/sprints`);
+  if (progressSprints.length === 0) {
+    select.innerHTML = `<option value="">Chưa có sprint/version trong dự án</option>`;
+    select.disabled = true;
+    return;
+  }
+
   select.innerHTML =
     `<option value="">Chọn sprint</option>` +
     progressSprints

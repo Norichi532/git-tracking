@@ -28,6 +28,14 @@ function progressFromTask(task) {
     return Number(task.percentageDone);
   }
 
+  if (task.timeMetrics?.currentStatusCategory === "done") {
+    return 100;
+  }
+
+  if (task.timeMetrics?.currentStatusCategory === "cancelled") {
+    return 0;
+  }
+
   const status = String(task.status || "").toLowerCase();
   if (
     status.includes("done") ||

@@ -1,0 +1,78 @@
+{
+  "notStarted": [
+    "New",
+    "To do",
+    "Backlog",
+    "Specified",
+    "In Specification"
+  ],
+  "ready": [
+    "Ready",
+    "Ready for Dev",
+    "Ready for Development"
+  ],
+  "active": [
+    "In Progress",
+    "Implementing",
+    "Developing",
+    "Development"
+  ],
+  "review": [
+    "Code Review",
+    "Review",
+    "In Review"
+  ],
+  "testing": [
+    "Testing",
+    "QA",
+    "Ready for Test",
+    "In Testing"
+  ],
+  "developed": [
+    "Developed",
+    "Dev Done",
+    "Development Done",
+    "Ready for testing"
+  ],
+  "blocked": [
+    "Blocked",
+    "On Hold"
+  ],
+  "done": [
+    "Done",
+    "Closed",
+    "Resolved",
+    "Prod"
+  ],
+  "cancelled": [
+    "Rejected",
+    "Cancelled",
+    "Canceled"
+  ],
+  "devStart": [
+    "In Progress"
+  ],
+  "devEnd": [
+    "Developed",
+    "Dev Done",
+    "Development Done",
+    "Ready For Testing"
+  ],
+  "terminal": [
+    "done",
+    "cancelled"
+  ],
+  "cycleStart": [
+    "active",
+    "review",
+    "testing",
+    "developed",
+    "blocked"
+  ],
+  "workInFlight": [
+    "active",
+    "review",
+    "testing",
+    "developed"
+  ]
+}

@@ -1,6 +1,8 @@
 // openproject.js
 // Fetch project choices from OpenProject API v3.
 
+const statusMapping = require("./status-mapping.json");
+
 function requireOpenProjectConfig() {
   const baseUrl = (process.env.OPENPROJECT_BASE_URL || "").replace(/\/+$/, "");
   const apiKey = process.env.OPENPROJECT_API_KEY || "";
@@ -168,15 +170,33 @@ async function fetchOpenProjectProjectSprints(projectId) {
   });
   if (!projectResult.ok) return projectResult;
 
-  const versionsHref = projectResult.data._links?.versions?.href;
-  if (!versionsHref) return { ok: true, sprints: [] };
+  const versionsHrefs = [
+    projectResult.data._links?.versions?.href,
+    `/api/v3/workspaces/${projectId}/versions`,
+    `/api/v3/projects/${projectId}/versions`,
+  ].filter(Boolean);
 
-  const result = await fetchOpenProjectCollection({
-    baseUrl: config.baseUrl,
-    apiKey: config.apiKey,
-    href: versionsHref,
-  });
-  if (!result.ok) return result;
+  const uniqueVersionHrefs = [...new Set(versionsHrefs)];
+  let result = null;
+
+  for (const href of uniqueVersionHrefs) {
+    result = await fetchOpenProjectCollection({
+      baseUrl: config.baseUrl,
+      apiKey: config.apiKey,
+      href,
+    });
+
+    if (!result.ok) {
+      if (result.status === 404 && href !== uniqueVersionHrefs[uniqueVersionHrefs.length - 1]) {
+        continue;
+      }
+      return result;
+    }
+
+    if (result.elements.length > 0) break;
+  }
+
+  if (!result) return { ok: true, sprints: [] };
 
   const sprints = result.elements
     .map((version) => ({
@@ -203,7 +223,47 @@ function linkId(link, resourceName) {
   return match ? Number(match[1]) : null;
 }
 
+function normalizeStatusText(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function statusList(name) {
+  return Array.isArray(statusMapping[name]) ? statusMapping[name] : [];
+}
+
+function statusInList(status, listName) {
+  const normalized = normalizeStatusText(status);
+  return statusList(listName).some((item) => normalizeStatusText(item) === normalized);
+}
+
+function categoryInList(category, listName) {
+  return statusList(listName).includes(category);
+}
+
+function configuredStatusCategory(status) {
+  const categories = [
+    "notStarted",
+    "ready",
+    "active",
+    "review",
+    "testing",
+    "developed",
+    "blocked",
+    "done",
+    "cancelled",
+  ];
+
+  for (const category of categories) {
+    if (statusInList(status, category)) return category;
+  }
+
+  return null;
+}
+
 function statusCategory(status) {
+  const configured = configuredStatusCategory(status);
+  if (configured) return configured;
+
   const normalized = String(status || "").toLowerCase();
 
   if (
@@ -239,14 +299,16 @@ function statusCategory(status) {
     return "active";
   }
 
-  return "idle";
+  return "notStarted";
 }
 
 function isInProgressStatus(status) {
-  return String(status || "").toLowerCase().trim() === "in progress";
+  return statusInList(status, "devStart");
 }
 
 function isDevelopedStatus(status) {
+  if (statusInList(status, "devEnd")) return true;
+
   const normalized = String(status || "").toLowerCase().trim();
   return (
     normalized === "developed" ||
@@ -264,7 +326,7 @@ function parseStatusChange(raw) {
   }
 
   const changedMatch = text.match(
-    /^(?:Status|Trạng thái) changed from (.+) to (.+)$/i
+    /^(?:Status|Trạng thái) changed from (.+?) to (.+)$/i
   );
   if (changedMatch) {
     return {
@@ -565,11 +627,13 @@ function calculateTimeMetrics({
   });
 
   const cycleStartSegment = segments.find((segment) =>
-    ["active", "blocked"].includes(segment.category)
+    categoryInList(segment.category, "cycleStart")
   );
   const cycleStart = cycleStartSegment?.start || null;
   const doneSegment = cycleStart
-    ? segments.find((segment) => segment.category === "done" && segment.start >= cycleStart)
+    ? segments.find(
+        (segment) => categoryInList(segment.category, "terminal") && segment.start >= cycleStart
+      )
     : null;
   const cycleEnd = doneSegment?.start || (cycleStart ? now : null);
 
@@ -592,7 +656,7 @@ function calculateTimeMetrics({
   const activeMs =
     cycleStart && cycleEnd
       ? segments
-          .filter((segment) => segment.category === "active")
+          .filter((segment) => categoryInList(segment.category, "workInFlight"))
           .reduce(
             (sum, segment) =>
               sum +
@@ -688,7 +752,11 @@ function taskWarnings({ task, timeMetrics, loggedWork, githubActivity }) {
     });
   }
 
-  if (!githubActivity.latest && !["idle", "done"].includes(timeMetrics.currentStatusCategory)) {
+  if (
+    !githubActivity.latest &&
+    categoryInList(timeMetrics.currentStatusCategory, "cycleStart") &&
+    !categoryInList(timeMetrics.currentStatusCategory, "terminal")
+  ) {
     warnings.push({
       code: "NO_GITHUB_ACTIVITY",
       level: "info",

@@ -329,6 +329,22 @@ GET /api/progress?openProjectId=&openProjectUserId=&sprintId=&businessHours=
 
 Ghi chú: endpoint `/sprints` trả về OpenProject Versions để frontend giữ đúng thuật ngữ Scrum.
 
+## Chuẩn hóa custom status
+
+Dashboard giữ nguyên status gốc của OpenProject khi hiển thị, nhưng map status đó về nhóm chuẩn để tính KPI.
+
+File cấu hình:
+
+```txt
+backend/status-mapping.json
+```
+
+Tài liệu BA cho rule này nằm ở:
+
+```txt
+docs/status_mapping.md
+```
+
 ## Những phần đã loại bỏ
 
 Các phần sau không còn cần thiết vì GitHub history được quản lý bởi OpenProject GitHub integration:
