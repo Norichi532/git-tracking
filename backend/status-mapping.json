@@ -1,7 +1,6 @@
 {
   "notStarted": [
     "New",
-    "To do",
     "Backlog",
     "Specified",
     "In Specification"
@@ -31,8 +30,7 @@
   "developed": [
     "Developed",
     "Dev Done",
-    "Development Done",
-    "Ready for testing"
+    "Development Done"
   ],
   "blocked": [
     "Blocked",
@@ -41,8 +39,7 @@
   "done": [
     "Done",
     "Closed",
-    "Resolved",
-    "Prod"
+    "Resolved"
   ],
   "cancelled": [
     "Rejected",
@@ -55,8 +52,7 @@
   "devEnd": [
     "Developed",
     "Dev Done",
-    "Development Done",
-    "Ready For Testing"
+    "Development Done"
   ],
   "terminal": [
     "done",
