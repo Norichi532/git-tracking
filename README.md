@@ -412,3 +412,4 @@ Các phần sau không còn cần thiết vì GitHub history được quản lý
 - Thêm báo cáo theo sprint/team/member.
 - Thêm benchmark theo loại task để so sánh estimate, logged work và dev time.
 - Thêm kiểm tra convention branch/PR trong CI hoặc Git hook để đảm bảo OpenProject liên kết GitHub activity ổn định.
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
