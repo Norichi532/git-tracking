@@ -36,6 +36,6 @@ Story points nen duoc dung de phat hien:
 - Member nao dang bi gan qua tai trong sprint.
 - Task lon nao can tach nho.
 - Sprint co nguy co tre vi remaining points con cao.
-- Estimate co lech voi dev time, cycle time hoac logged work hay khong.
+- Estimate co lech voi implementation time hoac logged work hay khong.
 
 Khong nen dung story points nhu don vi chuyen doi truc tiep sang gio lam hoac nang suat ca nhan.

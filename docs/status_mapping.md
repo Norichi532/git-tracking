@@ -10,23 +10,20 @@ backend/status-mapping.json
 
 | Nhom | Y nghia nghiep vu | Anh huong KPI |
 | --- | --- | --- |
-| `notStarted` | Task chua vao luong thuc hien | Khong tinh cycle/dev time |
-| `ready` | Task da san sang lam nhung chua bat dau | Khong tinh cycle/dev time |
-| `active` | Dang phat trien/thuc hien | Bat dau cycle neu nam trong `cycleStart`; co the bat dau dev time neu nam trong `devStart` |
-| `review` | Dang review code/nghiep vu | Tinh vao active time neu nam trong `workInFlight` |
-| `testing` | Dang test/QA | Tinh vao active time neu nam trong `workInFlight` |
-| `developed` | Dev da xong theo dinh nghia cua team | Ket thuc dev time neu nam trong `devEnd` |
+| `notStarted` | Task chua vao luong thuc hien | Khong tinh implementation time |
+| `ready` | Task da san sang lam nhung chua bat dau | Khong tinh implementation time |
+| `active` | Dang phat trien/thuc hien | Co the bat dau implementation time neu nam trong `devStart` |
+| `review` | Dang review code/nghiep vu | Khong dung de tinh thoi gian chinh |
+| `testing` | Dang test/QA | Co the ket thuc implementation time neu nam trong `devEnd` |
+| `developed` | Dev da xong theo dinh nghia cua team | Ket thuc implementation time neu nam trong `devEnd` |
 | `blocked` | Dang bi chan/cho xu ly | Tinh blocked time |
-| `done` | Da hoan thanh | Ket thuc cycle, duoc tinh 100% neu OpenProject khong co `% done` |
-| `cancelled` | Huy/tu choi/khong lam nua | Ket thuc cycle, khong tu dong tinh la hoan thanh |
+| `done` | Da hoan thanh | Duoc tinh 100% neu OpenProject khong co `% done` |
+| `cancelled` | Huy/tu choi/khong lam nua | Khong tu dong tinh la hoan thanh |
 
 ## Quy tac can chot voi BA/PM/Tech Lead
 
-1. `devStart`: status nao bat dau tinh dev time.
-2. `devEnd`: status nao ket thuc dev time.
-3. `cycleStart`: status nao bat dau tinh cycle time.
-4. `terminal`: status nao ket thuc cycle time.
-5. `workInFlight`: status nao duoc tinh la active time.
+1. `devStart`: status nao bat dau tinh implementation time.
+2. `devEnd`: status nao ket thuc implementation time, vi du `Ready For Testing` hoac `Developed`.
 
 ## Cach them custom status
 

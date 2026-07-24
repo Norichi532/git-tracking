@@ -700,21 +700,6 @@ function calculateTimeMetrics({
     }
   }
 
-  const activeMs =
-    cycleStart && cycleEnd
-      ? segments
-          .filter((segment) => categoryInList(segment.category, "workInFlight"))
-          .reduce(
-            (sum, segment) =>
-              sum +
-              durationBetween(
-                Math.max(segment.start, cycleStart),
-                Math.min(segment.end, cycleEnd)
-              ),
-            0
-          )
-      : 0;
-
   const blockedMs =
     cycleStart && cycleEnd
       ? segments
@@ -731,18 +716,18 @@ function calculateTimeMetrics({
       : 0;
 
   return {
-    cycleStartedAt: cycleStart ? new Date(cycleStart).toISOString() : null,
-    cycleEndedAt: doneSegment ? new Date(cycleEnd).toISOString() : null,
-    cycleMs: cycleStart && cycleEnd ? durationBetween(cycleStart, cycleEnd) : 0,
-    activeMs,
     blockedMs,
     developmentStartedAt: developmentStartedAt
       ? new Date(developmentStartedAt).toISOString()
       : null,
     developedAt: developedAt ? new Date(developedAt).toISOString() : null,
-    developMs:
+    implementationMs:
       developmentStartedAt && developedAt
         ? durationBetween(developmentStartedAt, developedAt)
+        : 0,
+    implementationElapsedMs:
+      developmentStartedAt && !developedAt
+        ? durationBetween(developmentStartedAt, now)
         : 0,
     timeMode: normalizeBusinessHoursRule(businessHoursRule).enabled ? "business" : "calendar",
     currentStatusCategory: statusCategory(currentStatus),
@@ -755,10 +740,10 @@ function taskWarnings({ task, timeMetrics, loggedWork, githubActivity }) {
   const storyPoints = Number(task.storyPoints);
   const hasStoryPoints =
     task.storyPoints !== null && task.storyPoints !== undefined && Number.isFinite(storyPoints);
-  const devMs = timeMetrics.developMs || 0;
+  const implementationMs = timeMetrics.implementationMs || 0;
   const loggedMs = loggedWork.totalMs || 0;
   const blockedMs = timeMetrics.blockedMs || 0;
-  const unaccountedMs = Math.max(0, devMs - loggedMs - blockedMs);
+  const unaccountedMs = Math.max(0, implementationMs - loggedMs - blockedMs);
   const fourBusinessHours = 4 * 60 * 60 * 1000;
   const twoBusinessHours = 2 * 60 * 60 * 1000;
 
@@ -778,7 +763,7 @@ function taskWarnings({ task, timeMetrics, loggedWork, githubActivity }) {
     });
   }
 
-  if (devMs > 0 && loggedMs > 0 && loggedMs / devMs < 0.25) {
+  if (implementationMs > 0 && loggedMs > 0 && loggedMs / implementationMs < 0.25) {
     warnings.push({
       code: "LOW_LOGGED_RATIO",
       level: "warning",
@@ -875,6 +860,8 @@ async function fetchOpenProjectSprintTasks({
   sprintId,
   memberId,
   businessHoursRule,
+  includeGithubActivity = true,
+  includeLoggedWork = true,
 }) {
   const config = requireOpenProjectConfig();
   if (!config.ok) return config;
@@ -942,17 +929,21 @@ async function fetchOpenProjectSprintTasks({
           apiKey: config.apiKey,
           workPackageId: task.id,
         }),
-        fetchWorkPackageGithubActivity({
-          baseUrl: config.baseUrl,
-          apiKey: config.apiKey,
-          workPackageId: task.id,
-          href: task.githubPullRequestsHref,
-        }),
-        fetchWorkPackageLoggedWork({
-          baseUrl: config.baseUrl,
-          apiKey: config.apiKey,
-          href: task.timeEntriesHref,
-        }),
+        includeGithubActivity
+          ? fetchWorkPackageGithubActivity({
+              baseUrl: config.baseUrl,
+              apiKey: config.apiKey,
+              workPackageId: task.id,
+              href: task.githubPullRequestsHref,
+            })
+          : Promise.resolve({ ok: true, activity: { pullRequestCount: 0, latest: null } }),
+        includeLoggedWork
+          ? fetchWorkPackageLoggedWork({
+              baseUrl: config.baseUrl,
+              apiKey: config.apiKey,
+              href: task.timeEntriesHref,
+            })
+          : Promise.resolve({ ok: true, loggedWork: { totalMs: 0, entryCount: 0, entries: [] } }),
       ]);
 
       const githubActivity = githubActivityResult.ok
@@ -965,14 +956,11 @@ async function fetchOpenProjectSprintTasks({
 
       if (!changesResult.ok) {
         const timeMetrics = {
-          cycleStartedAt: null,
-          cycleEndedAt: null,
-          cycleMs: 0,
-          activeMs: 0,
           blockedMs: 0,
           developmentStartedAt: null,
           developedAt: null,
-          developMs: 0,
+          implementationMs: 0,
+          implementationElapsedMs: 0,
           currentStatusCategory: statusCategory(task.status),
           statusChanges: [],
           unavailable: true,
@@ -1031,4 +1019,5 @@ module.exports = {
   fetchOpenProjectProjectMembers,
   fetchOpenProjectProjectSprints,
   fetchOpenProjectSprintTasks,
+  businessMsBetween,
 };

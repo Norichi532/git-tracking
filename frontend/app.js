@@ -10,8 +10,8 @@ const DEFAULT_BUSINESS_HOURS = {
   timezoneOffsetMinutes: 420,
   workDays: [1, 2, 3, 4, 5],
   startTime: "08:00",
-  endTime: "17:00",
-  breaks: [{ startTime: "12:00", endTime: "13:00" }],
+  endTime: "17:30",
+  breaks: [{ startTime: "12:00", endTime: "13:30" }],
   holidays: [],
 };
 
@@ -19,6 +19,7 @@ let openProjectProjects = [];
 let progressMembers = [];
 let progressSprints = [];
 let currentProgressTasks = [];
+let currentProgressSummary = null;
 let activeTaskFilter = "off-track";
 let taskViewMode = "compact";
 let groupVisibleCounts = {};
@@ -45,9 +46,10 @@ const TASK_GROUPS = [
   { id: "other", title: "Khác" },
 ];
 
-async function api(path) {
+async function api(path, options = {}) {
   const res = await fetch(API_BASE + path, {
-    headers: { "Content-Type": "application/json" },
+    ...options,
+    headers: { "Content-Type": "application/json", ...(options.headers || {}) },
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
@@ -180,6 +182,7 @@ function warningClass(level) {
 }
 
 function renderEmpty(message) {
+  currentProgressSummary = null;
   $("#progress-summary").innerHTML = "";
   $("#today-actions").innerHTML = "";
   $("#task-controls").innerHTML = "";
@@ -300,14 +303,38 @@ function forecastClass(risk) {
   return "is-unknown";
 }
 
+function baselineRiskRank(task) {
+  return { off_track: 4, at_risk: 3, unknown: 1, on_track: 0 }[task.baselineForecast?.risk] || 0;
+}
+
+function baselineForecastLabel(task) {
+  const forecast = task.baselineForecast;
+  if (!forecast) return "";
+  if (forecast.risk === "off_track") return "Baseline: khó kịp";
+  if (forecast.risk === "at_risk") return "Baseline: có rủi ro";
+  if (forecast.risk === "on_track") return "Baseline: ổn";
+  return "Baseline: thiếu dữ liệu";
+}
+
+function formatBenchmarkRate(ms) {
+  return ms ? `${formatDuration(ms)} / SP` : "Chưa có";
+}
+
 function taskHasGithubActivity(task) {
   return Boolean(task.githubActivity?.latest);
 }
 
 function taskMatchesFilter(task) {
   if (activeTaskFilter === "warnings") return hasWarning(task);
-  if (activeTaskFilter === "at-risk") return ["at_risk", "off_track"].includes(task.forecast?.risk);
-  if (activeTaskFilter === "off-track") return task.forecast?.risk === "off_track";
+  if (activeTaskFilter === "at-risk") {
+    return (
+      ["at_risk", "off_track"].includes(task.forecast?.risk) ||
+      ["at_risk", "off_track"].includes(task.baselineForecast?.risk)
+    );
+  }
+  if (activeTaskFilter === "off-track") {
+    return task.forecast?.risk === "off_track" || task.baselineForecast?.risk === "off_track";
+  }
   if (activeTaskFilter === "no-pr") return !taskHasGithubActivity(task);
   if (activeTaskFilter === "no-log") return task.timeMetrics?.developmentStartedAt && !task.loggedWork?.totalMs;
   if (activeTaskFilter === "large") return taskPoints(task) >= 8;
@@ -325,6 +352,9 @@ function sortedTasks(tasks) {
     const forecastDiff = forecastRank(b) - forecastRank(a);
     if (forecastDiff) return forecastDiff;
 
+    const baselineDiff = baselineRiskRank(b) - baselineRiskRank(a);
+    if (baselineDiff) return baselineDiff;
+
     const pointDiff = taskPoints(b) - taskPoints(a);
     if (pointDiff) return pointDiff;
 
@@ -333,7 +363,12 @@ function sortedTasks(tasks) {
 }
 
 function taskGroupId(task) {
-  if (["at_risk", "off_track"].includes(task.forecast?.risk)) return "attention";
+  if (
+    ["at_risk", "off_track"].includes(task.forecast?.risk) ||
+    ["at_risk", "off_track"].includes(task.baselineForecast?.risk)
+  ) {
+    return "attention";
+  }
   if (hasWarning(task)) return "attention";
 
   const category = task.timeMetrics?.currentStatusCategory;
@@ -382,16 +417,18 @@ function renderTaskCard(task) {
   const githubLink = task.githubUrl
     ? `<a class="meta-chip is-github" href="${task.githubUrl}" target="_blank" rel="noreferrer">GitHub activity</a>`
     : `<span class="meta-chip is-muted">GitHub activity nằm trong OpenProject</span>`;
-  const cycleRange = metrics.cycleStartedAt
-    ? `${formatDate(metrics.cycleStartedAt)} -> ${
-        metrics.cycleEndedAt ? formatDate(metrics.cycleEndedAt) : "đang chạy"
+  const implementationRange = metrics.developmentStartedAt
+    ? `${formatDate(metrics.developmentStartedAt)} -> ${
+        metrics.developedAt ? formatDate(metrics.developedAt) : "chưa tới Ready/Developed"
       }`
-    : "Chưa bắt đầu";
+    : "Chưa vào In progress";
   const latestGithub = task.githubActivity?.latest;
   const warnings = task.warnings || [];
   const loggedMs = task.loggedWork?.totalMs || 0;
   const forecast = task.forecast || {};
+  const baselineForecast = task.baselineForecast || null;
   const forecastLabel = forecastActionLabel(task);
+  const baselineLabel = baselineForecastLabel(task);
   const warningText = warningSummary(task);
   const warningList = warnings.length
     ? `
@@ -412,6 +449,11 @@ function renderTaskCard(task) {
     }</span>
     <span class="meta-chip ${statusClass(task.status)}">${task.status || "Chưa có trạng thái"}</span>
     <span class="meta-chip forecast-chip ${forecastClass(forecast.risk)}">${forecastLabel}</span>
+    ${
+      baselineForecast && baselineForecast.risk !== "unknown"
+        ? `<span class="meta-chip baseline-chip ${forecastClass(baselineForecast.risk)}">${baselineLabel}</span>`
+        : ""
+    }
     ${warningText ? `<span class="meta-chip is-warning-count">${warningText}</span>` : ""}
   `;
 
@@ -440,6 +482,22 @@ function renderTaskCard(task) {
           : ""
       }
     </div>`;
+  const baselineDetails = baselineForecast
+    ? `
+    <div class="forecast-panel baseline-panel ${forecastClass(baselineForecast.risk)}">
+      <div class="forecast-panel-title">
+        <strong>${baselineLabel}</strong>
+        <span>${Math.round((baselineForecast.confidence || 0) * 100)}% · ${baselineForecast.sampleSize || 0} mẫu</span>
+      </div>
+      <p>${baselineForecast.reason || "Chưa có nhận định baseline."}</p>
+      <div class="baseline-metrics">
+        <span><strong>${formatDuration(baselineForecast.elapsedMs)}</strong> đã dùng</span>
+        <span><strong>${formatDuration(baselineForecast.expectedMs)}</strong> kỳ vọng</span>
+        <span><strong>${formatDuration(baselineForecast.remainingExpectedMs)}</strong> còn theo baseline</span>
+        <span><strong>${formatBenchmarkRate(baselineForecast.medianMsPerPoint)}</strong> median</span>
+      </div>
+    </div>`
+    : "";
 
   const expandedDetails = `
       <div class="task-detail-meta">
@@ -448,16 +506,16 @@ function renderTaskCard(task) {
         ${githubLink}
       </div>
       ${forecastDetails}
+      ${baselineDetails}
       ${lastGithubActivity}
       ${warningList}
       <div class="task-time">
-        <span class="time-chip is-cycle"><strong>${formatDuration(metrics.cycleMs)}</strong> cycle time</span>
-        <span class="time-chip is-active"><strong>${formatDuration(metrics.activeMs)}</strong> active time</span>
-        <span class="time-chip is-develop"><strong>${formatDuration(metrics.developMs)}</strong> dev time</span>
+        <span class="time-chip is-implementation"><strong>${formatDuration(metrics.implementationMs)}</strong> In progress -> Ready/Developed</span>
+        <span class="time-chip is-implementation"><strong>${formatDuration(metrics.implementationElapsedMs)}</strong> đang In progress</span>
         <span class="time-chip is-logged"><strong>${formatDuration(loggedMs)}</strong> logged work</span>
         <span class="time-chip is-unaccounted"><strong>${formatDuration(metrics.unaccountedMs)}</strong> chưa phân bổ</span>
         <span class="time-chip is-blocked"><strong>${formatDuration(metrics.blockedMs)}</strong> blocked time</span>
-        <span class="time-chip is-range">${cycleRange}</span>
+        <span class="time-chip is-range">${implementationRange}</span>
       </div>
     `;
 
@@ -474,8 +532,7 @@ function renderTaskCard(task) {
           </div>
         </div>
         <div class="task-quick-flow">
-          <span><strong>${formatDuration(metrics.cycleMs)}</strong> cycle</span>
-          <span><strong>${formatDuration(metrics.activeMs)}</strong> active</span>
+          <span><strong>${formatDuration(metrics.implementationMs)}</strong> In progress -> Ready/Developed</span>
           <span><strong>${formatDuration(metrics.blockedMs)}</strong> blocked</span>
         </div>
         <div class="task-meta">${compactMeta}</div>
@@ -604,6 +661,86 @@ async function loadSprints(projectId) {
   select.disabled = progressSprints.length === 0;
 }
 
+function renderBenchmarkSummary(summary) {
+  const benchmark = summary?.storyPointBenchmark;
+  if (!benchmark) {
+    return `
+      <div class="benchmark-summary kpi-card is-missing">
+        <span class="kpi-label">Baseline story point</span>
+        <strong>Chưa có</strong>
+        <small>Bấm “Tính lại baseline” để đánh giá task In Progress theo tốc độ cá nhân.</small>
+      </div>`;
+  }
+
+  const sprintNames = (benchmark.sprintNames || []).join(", ") || "Chưa rõ sprint";
+  return `
+    <div class="benchmark-summary kpi-card is-baseline">
+      <span class="kpi-label">Baseline median</span>
+      <strong>${formatBenchmarkRate(benchmark.medianMsPerPoint)}</strong>
+      <span>Avg ${formatBenchmarkRate(benchmark.avgMsPerPoint)} · P80 ${formatBenchmarkRate(benchmark.p80MsPerPoint)}</span>
+      <small>${benchmark.sampleSize || 0} mẫu · ${sprintNames}</small>
+    </div>`;
+}
+
+function renderStatCard({ label, value, detail = "", tone = "" }) {
+  return `
+    <div class="kpi-card ${tone ? `is-${tone}` : ""}">
+      <span class="kpi-label">${label}</span>
+      <strong>${value}</strong>
+      ${detail ? `<small>${detail}</small>` : ""}
+    </div>`;
+}
+
+function renderProgressSummary(summary) {
+  return `
+    ${renderStatCard({
+      label: "Weighted progress",
+      value: `${summary.weightedProgress}%`,
+      detail: `${formatPoints(summary.donePoints)} done / ${formatPoints(summary.assignedPoints)} assigned`,
+      tone: "primary",
+    })}
+    ${renderStatCard({
+      label: "Task hoàn thành",
+      value: `${summary.doneTasks}/${summary.totalTasks}`,
+      detail: `${summary.inProgressTasks} đang làm`,
+    })}
+    ${renderStatCard({
+      label: "Remaining",
+      value: formatPoints(summary.remainingPoints),
+      detail: `${formatPoints(summary.inProgressPoints)} đang xử lý`,
+    })}
+    ${renderStatCard({
+      label: "Delivery risk",
+      value: summary.forecastCounts?.off_track || 0,
+      detail: `${summary.forecastCounts?.at_risk || 0} có rủi ro`,
+      tone: (summary.forecastCounts?.off_track || 0) > 0 ? "danger" : "success",
+    })}
+    ${renderStatCard({
+      label: "Baseline risk",
+      value: summary.baselineForecastCounts?.off_track || 0,
+      detail: `${summary.baselineForecastCounts?.at_risk || 0} sát baseline`,
+      tone: (summary.baselineForecastCounts?.off_track || 0) > 0 ? "danger" : "warning",
+    })}
+    ${renderBenchmarkSummary(summary)}
+    ${renderStatCard({
+      label: "Implementation TB",
+      value: formatDuration(summary.averageImplementationMs),
+      detail: `${summary.implementedTasks} task có mốc Ready/Developed`,
+    })}
+    ${renderStatCard({
+      label: "Logged work",
+      value: formatDuration(summary.totalLoggedMs),
+      detail: `${formatDuration(summary.totalUnaccountedMs)} chưa phân bổ`,
+    })}
+    ${renderStatCard({
+      label: "Blocked",
+      value: formatDuration(summary.totalBlockedMs),
+      detail: `${summary.warningCount} cảnh báo tổng`,
+      tone: summary.totalBlockedMs > 0 ? "warning" : "",
+    })}
+  `;
+}
+
 async function loadProgressBoard() {
   const projectId = $("#progress-project-select").value;
   const memberId = $("#progress-member-select").value;
@@ -628,24 +765,9 @@ async function loadProgressBoard() {
     });
     const result = await api(`/api/progress?${params.toString()}`);
     statusEl.textContent = "";
+    currentProgressSummary = result.summary;
 
-    $("#progress-summary").innerHTML = `
-      <div><strong>${result.summary.totalTasks}</strong><span>Task</span></div>
-      <div><strong>${result.summary.averageProgress}%</strong><span>Trung bình</span></div>
-      <div><strong>${result.summary.weightedProgress}%</strong><span>Theo story point</span></div>
-      <div><strong>${formatPoints(result.summary.assignedPoints)}</strong><span>Assigned</span></div>
-      <div><strong>${formatPoints(result.summary.donePoints)}</strong><span>Done points</span></div>
-      <div><strong>${formatPoints(result.summary.remainingPoints)}</strong><span>Remaining</span></div>
-      <div><strong>${result.summary.doneTasks}</strong><span>Hoàn thành</span></div>
-      <div><strong>${result.summary.inProgressTasks}</strong><span>Đang làm</span></div>
-      <div><strong>${formatDuration(result.summary.averageDevelopMs)}</strong><span>Dev TB (${result.summary.developedTasks})</span></div>
-      <div><strong>${formatDuration(result.summary.totalLoggedMs)}</strong><span>Logged work</span></div>
-      <div><strong>${formatDuration(result.summary.totalUnaccountedMs)}</strong><span>Chưa phân bổ</span></div>
-      <div><strong>${formatDuration(result.summary.totalBlockedMs)}</strong><span>Blocked</span></div>
-      <div><strong>${result.summary.warningCount}</strong><span>Cảnh báo</span></div>
-      <div><strong>${result.summary.forecastCounts?.at_risk || 0}</strong><span>Có rủi ro</span></div>
-      <div><strong>${result.summary.forecastCounts?.off_track || 0}</strong><span>Khó kịp</span></div>
-    `;
+    $("#progress-summary").innerHTML = renderProgressSummary(result.summary);
 
     currentProgressTasks = result.tasks;
     groupVisibleCounts = {};
@@ -667,6 +789,43 @@ async function loadProgressBoard() {
   }
 }
 
+async function recalculateBenchmark() {
+  const projectId = $("#progress-project-select").value;
+  const memberId = $("#progress-member-select").value;
+  const sprintId = $("#progress-sprint-select").value;
+  const statusEl = $("#progress-status");
+  const button = $("#benchmark-recalculate-btn");
+
+  if (!projectId || !memberId) {
+    statusEl.textContent = "Chọn dự án và thành viên trước khi tính baseline.";
+    statusEl.className = "status-line error";
+    return;
+  }
+
+  button.disabled = true;
+  statusEl.textContent = "Đang tính lại baseline story point...";
+  statusEl.className = "status-line neutral";
+
+  try {
+    await api("/api/benchmarks/recalculate", {
+      method: "POST",
+      body: JSON.stringify({
+        openProjectId: projectId,
+        openProjectUserId: memberId,
+        businessHours: JSON.stringify(businessHoursRule()),
+      }),
+    });
+    statusEl.textContent = "Đã cập nhật baseline story point.";
+    statusEl.className = "status-line success";
+    if (sprintId) await loadProgressBoard();
+  } catch (err) {
+    statusEl.textContent = err.message;
+    statusEl.className = "status-line error";
+  } finally {
+    button.disabled = false;
+  }
+}
+
 $("#progress-project-select").addEventListener("change", async (event) => {
   const projectId = event.target.value;
   $("#progress-status").textContent = "";
@@ -680,6 +839,7 @@ $("#progress-project-select").addEventListener("change", async (event) => {
 $("#progress-member-select").addEventListener("change", loadProgressBoard);
 $("#progress-sprint-select").addEventListener("change", loadProgressBoard);
 $("#progress-refresh-btn").addEventListener("click", loadProgressBoard);
+$("#benchmark-recalculate-btn").addEventListener("click", recalculateBenchmark);
 $("#today-actions").addEventListener("click", (event) => {
   const button = event.target.closest("[data-action-filter]");
   if (!button) return;

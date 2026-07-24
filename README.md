@@ -12,6 +12,7 @@ Dashboard giúp PM, Scrum Master và team dev trả lời nhanh các câu hỏi:
 - Task đang ở trạng thái nào?
 - Tiến độ trung bình của thành viên trong sprint là bao nhiêu?
 - Task nào đã hoàn thành, task nào đang làm, task nào chưa bắt đầu?
+- Task đang `In Progress` có kịp tiến độ theo baseline story point cá nhân không?
 - GitHub activity liên quan đến task nằm ở đâu trong OpenProject?
 
 ## Nguyên tắc business
@@ -77,10 +78,11 @@ Mỗi task hiển thị:
 - Priority
 - Percentage done
 - Thời điểm cập nhật gần nhất
-- Dev time từ `In progress` đến `Developed`
+- Thời gian xử lý từ `In progress` đến `Ready For Testing` hoặc `Developed`
 - Logged work từ time entries của OpenProject
 - Phần thời gian chưa phân bổ
 - Blocked time
+- Baseline story point forecast cho task đang `In Progress`, nếu đã tính baseline cho nhân viên
 - Last GitHub activity từ OpenProject GitHub integration
 - Cảnh báo dữ liệu hoặc cảnh báo vận hành nếu có
 
@@ -92,11 +94,13 @@ Dashboard tính các chỉ số:
 - Tiến độ trung bình
 - Số task hoàn thành
 - Số task đang làm
-- Dev time trung bình cho các task đã đi tới `Developed`
+- Thời gian xử lý trung bình cho các task đã đi tới `Ready For Testing` hoặc `Developed`
 - Tổng logged work
 - Tổng thời gian chưa phân bổ
 - Blocked time tổng
 - Tổng số cảnh báo
+- Baseline story point trung vị/trung bình của nhân viên
+- Số task đang có rủi ro theo baseline cá nhân
 
 Progress được tính từ OpenProject:
 
@@ -104,18 +108,16 @@ Progress được tính từ OpenProject:
 2. Nếu không có %, task có status đóng/hoàn thành được tính là 100%.
 3. Các task còn lại được tính là 0%.
 
-### Cách tính thời gian đi qua pipeline
+### Cách tính thời gian xử lý
 
-Dashboard tính thời gian dựa trên lịch sử thay đổi status của Work Package trong OpenProject. Mục tiêu không phải chứng minh nhân viên code đủ 8 tiếng/ngày, mà là đo task đi qua pipeline trong bao lâu và đối chiếu với logged work để ước lượng effort thực tế.
+Dashboard tính thời gian dựa trên lịch sử thay đổi status của Work Package trong OpenProject. Mục tiêu không phải chứng minh nhân viên code đủ 8 tiếng/ngày, mà là đo khoảng từ lúc task bắt đầu `In progress` đến khi sẵn sàng test hoặc hoàn tất development.
 
 Các chỉ số:
 
-- `Cycle time`: tính từ lần đầu task vào trạng thái đang làm/bị block đến lúc task đóng. Nếu task chưa đóng, tính đến thời điểm hiện tại.
-- `Dev time`: tính từ lần đầu task vào `In progress` đến lần đầu task vào `Developed`.
-- `Active time`: tổng thời gian task nằm trong trạng thái đang làm, review, testing hoặc development.
+- `Implementation time`: tính từ lần đầu task vào `In progress` đến lần đầu task vào `Ready For Testing` hoặc `Developed`.
 - `Blocked time`: tổng thời gian task nằm trong trạng thái blocked.
 - `Logged work`: tổng thời gian nhân viên log vào Work Package qua OpenProject time entries.
-- `Unaccounted time`: phần chênh lệch còn lại, tính theo công thức `max(0, Dev time - Logged work - Blocked time)`.
+- `Unaccounted time`: phần chênh lệch còn lại, tính theo công thức `max(0, Implementation time - Logged work - Blocked time)`.
 
 Nhóm status mặc định:
 
@@ -127,25 +129,23 @@ Nhóm status mặc định:
 Ví dụ:
 
 ```txt
-Specified -> In progress -> Blocked -> In progress -> Closed
+Specified -> In progress -> Blocked -> In progress -> Ready For Testing -> Closed
 ```
 
 Dashboard sẽ tính:
 
-- `Cycle time`: từ lần đầu vào `In progress` đến lúc vào `Closed`.
-- `Dev time`: từ lần đầu vào `In progress` đến lúc vào `Developed`, nếu task có mốc `Developed`.
-- `Active time`: tổng hai khoảng `In progress`.
+- `Implementation time`: từ lần đầu vào `In progress` đến lúc vào `Ready For Testing` hoặc `Developed`.
 - `Blocked time`: khoảng nằm trong `Blocked`.
 - `Logged work`: tổng time entries đã log trên Work Package đó.
-- `Unaccounted time`: phần thời gian pipeline chưa được giải thích bởi logged work hoặc blocked time.
+- `Unaccounted time`: phần thời gian xử lý chưa được giải thích bởi logged work hoặc blocked time.
 
 ### Cảnh báo
 
 Dashboard hiển thị cảnh báo ở cấp task để PM biết chỗ nào cần trao đổi thêm với team:
 
-- Task đã vào `In progress` nhưng chưa tới `Developed`.
+- Task đã vào `In progress` nhưng chưa tới `Ready For Testing` hoặc `Developed`.
 - Task đã bắt đầu dev nhưng chưa có logged work.
-- Logged work thấp bất thường so với dev time.
+- Logged work thấp bất thường so với implementation time.
 - Thời gian chưa phân bổ từ 4 giờ làm việc trở lên.
 - Blocked time từ 2 giờ làm việc trở lên.
 - Task đang làm nhưng chưa có pull request liên kết trong OpenProject.
@@ -252,8 +252,11 @@ git-tracking/
 ├── backend/
 │   ├── server.js        # Express API cho dashboard
 │   ├── openproject.js   # OpenProject API client
+│   ├── benchmark.js     # Baseline story point forecast theo từng nhân viên
 │   ├── env.js           # Minimal .env loader
-│   └── package.json
+│   ├── status-mapping.json
+│   ├── package.json
+│   └── data/            # Runtime benchmark store, không commit
 └── frontend/
     ├── index.html
     ├── app.js
@@ -325,9 +328,23 @@ GET /api/openproject/projects
 GET /api/openproject/projects/:id/members
 GET /api/openproject/projects/:id/sprints
 GET /api/progress?openProjectId=&openProjectUserId=&sprintId=&businessHours=
+GET /api/benchmarks?openProjectId=&openProjectUserId=
+POST /api/benchmarks/recalculate
 ```
 
 Ghi chú: endpoint `/sprints` trả về OpenProject Versions để frontend giữ đúng thuật ngữ Scrum.
+
+`POST /api/benchmarks/recalculate` nhận body JSON:
+
+```json
+{
+  "openProjectId": "1",
+  "openProjectUserId": "42",
+  "businessHours": "{\"enabled\":true}"
+}
+```
+
+Endpoint này sẽ đọc lịch sử task từ OpenProject, tính lại baseline story point cho nhân viên và lưu vào `backend/data/benchmarks.json`.
 
 ## Chuẩn hóa custom status
 
@@ -354,6 +371,72 @@ Tài liệu BA cho rule này nằm ở:
 ```txt
 docs/story_points.md
 ```
+
+## Baseline Story Point Forecast theo từng nhân viên
+
+Dashboard có thể tính baseline năng suất lịch sử cho từng nhân viên theo công thức:
+
+```txt
+Thời gian / story point = Implementation time / storyPoints
+```
+
+Mục tiêu của baseline này là hỗ trợ PM/Scrum Master nhận diện sớm task đang `In Progress` có nguy cơ không kịp sprint, không phải dùng như kết luận đánh giá hiệu suất độc lập.
+
+### Nguồn dữ liệu baseline
+
+Khi bấm **Tính lại baseline** trên dashboard hoặc gọi API recalculate, backend sẽ:
+
+1. Lấy danh sách sprint/version của project từ OpenProject.
+2. Ưu tiên tối đa 3 sprint đã hoàn thành, dựa trên `finishDate <= today`.
+3. Nếu số mẫu hợp lệ ít hơn 5 task, fallback thêm sprint gần nhất có task đã hoàn thành implementation.
+4. Chỉ lấy task của đúng nhân viên đang chọn.
+5. Chỉ tính task có `storyPoints > 0` và đã có `Implementation time > 0`.
+
+Task bị loại khỏi baseline nếu thiếu story point, chưa đi tới `Ready For Testing`/`Developed`, hoặc đã bị cancel/reject.
+
+### Chỉ số được lưu
+
+Baseline được lưu local ở:
+
+```txt
+backend/data/benchmarks.json
+```
+
+File này là dữ liệu runtime và không nên commit lên git. Mỗi baseline được lưu theo key:
+
+```txt
+<openProjectId>:<openProjectUserId>
+```
+
+Mỗi bản ghi lưu các thông tin chính:
+
+- `avgMsPerPoint`: thời gian trung bình cho 1 story point.
+- `medianMsPerPoint`: trung vị, được dùng làm chỉ số forecast chính để tránh bị lệch bởi task bất thường.
+- `p80MsPerPoint`: mốc P80 để PM tham khảo biên an toàn.
+- `sampleSize`: số task hợp lệ đã dùng để tính.
+- `sprintIds`, `sprintNames`: sprint nguồn.
+- `excluded`: số task bị loại theo lý do.
+- `calculatedAt`: thời điểm tính lại baseline.
+
+### Cách đánh giá task đang In Progress
+
+Với task đang ở nhóm status `active`, dashboard tính:
+
+```txt
+expectedMs = storyPoints * medianMsPerPoint
+elapsedMs = thời gian từ lúc task vào In Progress đến hiện tại
+remainingExpectedMs = max(expectedMs - elapsedMs, 0)
+remainingSprintBusinessMs = thời gian làm việc còn lại tới ngày kết thúc sprint
+```
+
+Kết quả hiển thị trong `baselineForecast` của từng task:
+
+- `on_track`: vẫn nằm trong baseline cá nhân.
+- `at_risk`: đã dùng gần hết baseline hoặc thời gian còn lại khá sát.
+- `off_track`: đã vượt baseline hoặc thời gian kỳ vọng còn lại lớn hơn thời gian sprint còn lại.
+- `unknown`: thiếu baseline, thiếu story point, thiếu mốc `In Progress`, hoặc sprint chưa có ngày kết thúc.
+
+Lưu ý: `/api/progress` chỉ đọc baseline đã lưu, không tự tính lại mỗi lần tải dashboard để hạn chế số request tới OpenProject. Muốn cập nhật baseline, dùng nút **Tính lại baseline** hoặc gọi endpoint recalculate.
 
 ## Dự báo tiến độ task
 
@@ -410,5 +493,5 @@ Các phần sau không còn cần thiết vì GitHub history được quản lý
 
 - Thêm authentication cho dashboard.
 - Thêm báo cáo theo sprint/team/member.
-- Thêm benchmark theo loại task để so sánh estimate, logged work và dev time.
+- Thêm benchmark theo loại task để so sánh estimate, logged work và implementation time.
 - Thêm kiểm tra convention branch/PR trong CI hoặc Git hook để đảm bảo OpenProject liên kết GitHub activity ổn định.

@@ -10,6 +10,11 @@ const {
   fetchOpenProjectSprintTasks,
 } = require("./openproject");
 const { buildTaskForecasts } = require("./forecast");
+const {
+  attachBaselineForecasts,
+  getStoredBenchmark,
+  recalculateStoryPointBenchmark,
+} = require("./benchmark");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -86,6 +91,46 @@ app.get("/api/openproject/projects/:id/sprints", async (req, res) => {
   }
 });
 
+app.get("/api/benchmarks", (req, res) => {
+  const { openProjectId, openProjectUserId } = req.query;
+  if (!openProjectId || !openProjectUserId) {
+    return res.status(400).json({
+      error: "Thieu openProjectId hoac openProjectUserId",
+    });
+  }
+
+  return res.json({
+    benchmark: getStoredBenchmark(openProjectId, openProjectUserId),
+  });
+});
+
+app.post("/api/benchmarks/recalculate", async (req, res) => {
+  const openProjectId = req.body?.openProjectId || req.query.openProjectId;
+  const openProjectUserId = req.body?.openProjectUserId || req.query.openProjectUserId;
+
+  if (!openProjectId || !openProjectUserId) {
+    return res.status(400).json({
+      error: "Thieu openProjectId hoac openProjectUserId",
+    });
+  }
+
+  try {
+    const result = await recalculateStoryPointBenchmark({
+      projectId: openProjectId,
+      memberId: openProjectUserId,
+      businessHoursRule: parseBusinessHoursRule(
+        req.body?.businessHours || req.query.businessHours
+      ),
+    });
+    if (!result.ok) {
+      return res.status(result.status || 503).json({ error: result.error });
+    }
+    return res.json({ benchmark: result.benchmark });
+  } catch (err) {
+    return res.status(503).json({ error: err.message || "Khong the tinh baseline" });
+  }
+});
+
 app.get("/api/progress", async (req, res) => {
   const { openProjectId, openProjectUserId, sprintId } = req.query;
   if (!openProjectId || !openProjectUserId || !sprintId) {
@@ -110,6 +155,7 @@ app.get("/api/progress", async (req, res) => {
     return res.status(tasksResult.status || 503).json({ error: tasksResult.error });
   }
 
+  const businessHoursRule = parseBusinessHoursRule(req.query.businessHours);
   let tasks = tasksResult.tasks.map((task) => ({
     ...task,
     progress: progressFromTask(task),
@@ -124,6 +170,13 @@ app.get("/api/progress", async (req, res) => {
     : null;
   const aiEnabled = String(req.query.ai || "false").toLowerCase() === "true";
   tasks = await buildTaskForecasts({ tasks, sprint, aiEnabled });
+  const storyPointBenchmark = getStoredBenchmark(openProjectId, openProjectUserId);
+  tasks = attachBaselineForecasts({
+    tasks,
+    benchmark: storyPointBenchmark,
+    sprint,
+    businessHoursRule,
+  });
 
   const doneCount = tasks.filter((task) => task.progress >= 100).length;
   const averageProgress =
@@ -165,19 +218,27 @@ app.get("/api/progress", async (req, res) => {
     (sum, task) => sum + (task.timeMetrics?.unaccountedMs || 0),
     0
   );
-  const developedTasks = tasks.filter((task) => task.timeMetrics?.developMs > 0);
-  const averageDevelopMs =
-    developedTasks.length === 0
+  const implementedTasks = tasks.filter((task) => task.timeMetrics?.implementationMs > 0);
+  const averageImplementationMs =
+    implementedTasks.length === 0
       ? 0
       : Math.round(
-          developedTasks.reduce((sum, task) => sum + task.timeMetrics.developMs, 0) /
-            developedTasks.length
+          implementedTasks.reduce((sum, task) => sum + task.timeMetrics.implementationMs, 0) /
+            implementedTasks.length
         );
   const warningCount = tasks.reduce((sum, task) => sum + (task.warnings?.length || 0), 0);
   const forecastCounts = tasks.reduce(
     (counts, task) => {
       const risk = task.forecast?.risk || "unknown";
       counts[risk] = (counts[risk] || 0) + 1;
+      return counts;
+    },
+    { on_track: 0, at_risk: 0, off_track: 0, unknown: 0 }
+  );
+  const baselineForecastCounts = tasks.reduce(
+    (counts, task) => {
+      const risk = task.baselineForecast?.risk;
+      if (risk) counts[risk] = (counts[risk] || 0) + 1;
       return counts;
     },
     { on_track: 0, at_risk: 0, off_track: 0, unknown: 0 }
@@ -199,10 +260,12 @@ app.get("/api/progress", async (req, res) => {
       totalBlockedMs,
       totalLoggedMs,
       totalUnaccountedMs,
-      developedTasks: developedTasks.length,
-      averageDevelopMs,
+      implementedTasks: implementedTasks.length,
+      averageImplementationMs,
       warningCount,
       forecastCounts,
+      baselineForecastCounts,
+      storyPointBenchmark,
       aiForecastEnabled: aiEnabled,
     },
     tasks,

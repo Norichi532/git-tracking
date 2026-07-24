@@ -10,10 +10,10 @@
 
   <header class="topbar">
     <div class="brand">
-      <span class="brand-mark">◇</span>
+      <span class="brand-mark" aria-hidden="true"></span>
       <div>
         <h1>Git Tracking Dashboard</h1>
-        <p class="tagline">Theo dõi tiến độ từ OpenProject và GitHub integration.</p>
+        <p class="tagline">Sprint delivery intelligence từ OpenProject và GitHub integration.</p>
       </div>
     </div>
     <div class="source-hint">
@@ -24,22 +24,36 @@
   </header>
 
   <main class="layout dashboard-layout">
-    <section class="card progress-card">
+    <section class="progress-card">
       <div class="progress-header">
-        <h2>Tiến độ sprint</h2>
-        <button id="progress-refresh-btn">Làm mới</button>
+        <div>
+          <h2>Tiến độ sprint</h2>
+        </div>
+        <div class="progress-actions">
+          <button id="benchmark-recalculate-btn">Tính lại baseline</button>
+          <button id="progress-refresh-btn">Làm mới</button>
+        </div>
       </div>
 
-      <div class="progress-filters">
-        <select id="progress-project-select">
-          <option value="">Chọn dự án</option>
-        </select>
-        <select id="progress-member-select" disabled>
-          <option value="">Chọn thành viên</option>
-        </select>
-        <select id="progress-sprint-select" disabled>
-          <option value="">Chọn sprint</option>
-        </select>
+      <div class="progress-filters" aria-label="Bộ lọc sprint">
+        <label>
+          <span>Dự án</span>
+          <select id="progress-project-select">
+            <option value="">Chọn dự án</option>
+          </select>
+        </label>
+        <label>
+          <span>Thành viên</span>
+          <select id="progress-member-select" disabled>
+            <option value="">Chọn thành viên</option>
+          </select>
+        </label>
+        <label>
+          <span>Sprint</span>
+          <select id="progress-sprint-select" disabled>
+            <option value="">Chọn sprint</option>
+          </select>
+        </label>
       </div>
 
       <p id="progress-status" class="status-line neutral"></p>
